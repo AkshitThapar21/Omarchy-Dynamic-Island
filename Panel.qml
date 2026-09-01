@@ -151,24 +151,79 @@ Panel {
         else if (t === "m") root.toggleAudioMute()
       }
 
-      ColumnLayout {
-        id: mainColumn
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        spacing: Style.space(12)
-        transformOrigin: Item.Top
+      Item {
+        id: animWrapper
+        anchors.fill: parent
 
-        // Smooth popup opening entrance animation
-        opacity: root.opened ? 1.0 : 0.0
-        scale: root.opened ? 1.0 : 0.94
+        property real animProgress: 0.0
+        property real animScale: 0.88
+        property real animY: -16
+        property real animOpacity: 0.0
 
-        Behavior on opacity {
-          NumberAnimation { duration: 180; easing.type: Easing.OutQuad }
+        ParallelAnimation {
+          id: openAnimation
+          running: false
+          NumberAnimation {
+            target: animWrapper
+            property: "animProgress"
+            from: 0.0
+            to: 1.0
+            duration: 320
+            easing.type: Easing.OutCubic
+          }
+          NumberAnimation {
+            target: animWrapper
+            property: "animScale"
+            from: 0.88
+            to: 1.0
+            duration: 340
+            easing.type: Easing.OutBack
+            easing.overshoot: 1.14
+          }
+          NumberAnimation {
+            target: animWrapper
+            property: "animY"
+            from: -16
+            to: 0
+            duration: 300
+            easing.type: Easing.OutCubic
+          }
+          NumberAnimation {
+            target: animWrapper
+            property: "animOpacity"
+            from: 0.0
+            to: 1.0
+            duration: 220
+            easing.type: Easing.OutQuad
+          }
         }
-        Behavior on scale {
-          NumberAnimation { duration: 220; easing.type: Easing.OutBack }
+
+        Connections {
+          target: root
+          function onOpenedChanged() {
+            if (root.opened) {
+              openAnimation.restart()
+            } else {
+              openAnimation.stop()
+              animWrapper.animScale = 0.88
+              animWrapper.animY = -16
+              animWrapper.animOpacity = 0.0
+              animWrapper.animProgress = 0.0
+            }
+          }
         }
+
+        ColumnLayout {
+          id: mainColumn
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.top: parent.top
+          spacing: Style.space(12)
+          transformOrigin: Item.Top
+
+          y: animWrapper.animY
+          scale: animWrapper.animScale
+          opacity: animWrapper.animOpacity
 
         // 1. Header Bar: Island Identity & Source Badge
         RowLayout {
@@ -791,4 +846,5 @@ Panel {
       }
     }
   }
+}
 }
