@@ -98,10 +98,12 @@ function boundPlayerList(players, maxCount) {
   return res
 }
 
-function detectPwaFromToplevels(toplevels) {
+function detectPwaFromToplevels(toplevels, currentTitle) {
   if (!toplevels || !toplevels.length || toplevels.length === 0) return null
   var limit = Math.min(toplevels.length, MAX_TOPLEVELS_INSPECTED)
+  var cleanCurrent = (currentTitle || "").toLowerCase()
 
+  // PASS 1: Explicitly check for known Music / Video / Media services across all windows
   for (var i = 0; i < limit; i++) {
     var top = toplevels[i]
     if (!top) continue
@@ -165,33 +167,24 @@ function detectPwaFromToplevels(toplevels) {
     if (appId.indexOf("pocketcasts.com") !== -1 || title.indexOf("pocket casts") !== -1) {
       return { name: "Pocket Casts", icon: "󰦔", brand: "podcasts" }
     }
-    // 13. Discord PWA
-    if (appId.indexOf("discord.com") !== -1 || title.indexOf("discord") !== -1) {
-      return { name: "Discord", icon: "󰙯", brand: "discord" }
-    }
-    // 14. WhatsApp PWA
-    if (appId.indexOf("whatsapp.com") !== -1 || title.indexOf("whatsapp") !== -1) {
-      return { name: "WhatsApp", icon: "󰖣", brand: "whatsapp" }
-    }
-    // 15. Telegram PWA
-    if (appId.indexOf("telegram.org") !== -1 || title.indexOf("telegram") !== -1) {
-      return { name: "Telegram", icon: "󰎤", brand: "telegram" }
-    }
-    // 16. Reddit PWA
-    if (appId.indexOf("reddit.com") !== -1 || title.indexOf("reddit") !== -1) {
-      return { name: "Reddit", icon: "󰑍", brand: "reddit" }
-    }
-    // 17. X / Twitter PWA
-    if (appId.indexOf("twitter.com") !== -1 || appId.indexOf("x.com") !== -1 || title.indexOf("twitter") !== -1) {
-      return { name: "X", icon: "󰕄", brand: "twitter" }
-    }
-    // 18. Generic Chrome PWA AppID format: chrome-<domain>-Default
-    var pwaMatch = appId.match(/^chrome-([a-zA-Z0-9._-]+)-default$/i)
-    if (pwaMatch && pwaMatch[1]) {
-      var domain = pwaMatch[1].replace(/__.*$/, "").replace(/_/g, ".")
-      var clean = sanitizeString(domain.split(".")[0], 30)
-      if (clean) clean = clean.charAt(0).toUpperCase() + clean.slice(1)
-      return { name: clean || "Web App", icon: "󰎆", brand: "pwa" }
+  }
+
+  // PASS 2: If a window's title matches the currently playing track title
+  if (cleanCurrent && cleanCurrent !== "no media playing" && cleanCurrent !== "no track") {
+    for (var j = 0; j < limit; j++) {
+      var top2 = toplevels[j]
+      if (!top2) continue
+      var tTitle = sanitizeString(top2.title || "", 128).toLowerCase()
+      var tAppId = sanitizeString(top2.appId || "", 128)
+      if (tTitle.indexOf(cleanCurrent.slice(0, 20)) !== -1) {
+        var pwaMatch = tAppId.match(/^chrome-([a-zA-Z0-9._-]+)-default$/i)
+        if (pwaMatch && pwaMatch[1]) {
+          var domain = pwaMatch[1].replace(/__.*$/, "").replace(/_/g, ".")
+          var clean = sanitizeString(domain.split(".")[0], 30)
+          if (clean) clean = clean.charAt(0).toUpperCase() + clean.slice(1)
+          return { name: clean || "Web App", icon: "󰎆", brand: "pwa" }
+        }
+      }
     }
   }
 
@@ -250,7 +243,7 @@ function detectSource(player, toplevels) {
                    identity.indexOf("Mozilla") !== -1)
 
   if (isBrowser && toplevels && toplevels.length) {
-    var pwaFound = detectPwaFromToplevels(toplevels)
+    var pwaFound = detectPwaFromToplevels(toplevels, title)
     if (pwaFound) {
       return pwaFound
     }
