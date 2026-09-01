@@ -183,6 +183,7 @@ BarWidget {
       anchors.centerIn: parent
       visible: !root.vertical && !root.hasMedia
       text: "󰎆"
+      textFormat: Text.PlainText
       color: root.hoverActive ? Color.accent : Qt.rgba(pillContainer.fg.r, pillContainer.fg.g, pillContainer.fg.b, 0.7)
       font.family: pillContainer.fontFam
       font.pixelSize: Style.font.iconSmall
@@ -259,6 +260,7 @@ BarWidget {
           anchors.centerIn: parent
           visible: !root.isPlaying
           text: root.sourceInfo.icon
+          textFormat: Text.PlainText
           color: pillContainer.fg
           font.family: pillContainer.fontFam
           font.pixelSize: Style.font.caption
@@ -276,6 +278,7 @@ BarWidget {
           id: trackLabel
           Layout.fillWidth: true
           text: root.title
+          textFormat: Text.PlainText
           color: pillContainer.fg
           font.family: pillContainer.fontFam
           font.pixelSize: Style.font.bodySmall
@@ -288,6 +291,7 @@ BarWidget {
         Text {
           id: artistLabel
           text: root.artist ? "· " + root.artist : ""
+          textFormat: Text.PlainText
           color: Qt.rgba(pillContainer.fg.r, pillContainer.fg.g, pillContainer.fg.b, 0.65)
           font.family: pillContainer.fontFam
           font.pixelSize: Style.font.caption
@@ -329,6 +333,7 @@ BarWidget {
       Text {
         Layout.alignment: Qt.AlignHCenter
         text: root.isPlaying ? "󰎆" : (root.hasMedia ? root.sourceInfo.icon : "󰃰")
+        textFormat: Text.PlainText
         color: pillContainer.fg
         font.family: pillContainer.fontFam
         font.pixelSize: Style.font.iconSmall

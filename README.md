@@ -13,6 +13,13 @@ A sleek, interactive dynamic island bar-widget for Omarchy Quattro that expands 
 - **Multi-Player Support:** Detects and switches between active media players (Spotify, Firefox, Chromium, Apple Music, VLC, mpv, etc.).
 - **Zero Hardcoded Colors:** 100% theme-adaptive via `qs.Commons Style` and `Color` design tokens.
 
+## Security & Privacy Policy
+
+- **Untrusted Text Sanitization:** All user-facing text sinks (track title, artist, album, player identity, desktop entry, DBus names, and window titles) explicitly enforce `textFormat: Text.PlainText` and control-character stripping to prevent rich-text injection and layout distortion.
+- **Bounded Artwork Policy:** `trackArtUrl` is validated against strict allowed schemes (`file://` and `http://`/`https://`) with path-traversal and sensitive directory blocks (`/etc`, `/proc`, `/sys`, `~/.ssh`). Qt image decoding is strictly bounded with `sourceSize: 128x128` to prevent decompression-bomb and memory-exhaustion vectors.
+- **Remote Network Access Notice:** When an MPRIS player publishes remote HTTP/HTTPS cover art URLs (e.g. Spotify, YouTube), Quickshell's `Image` element fetches the thumbnail asynchronously. No background network telemetry, analytics, or external API calls are performed by this plugin.
+- **Resource Limits:** Scanned metadata dictionaries, open Wayland toplevels, and multi-player selectors are bounded to strict key whitelists and array slices to prevent unbounded memory retention.
+
 ## Requirements
 
 - Omarchy Quattro with Hyprland and Quickshell.
@@ -30,12 +37,17 @@ omarchy plugin add https://github.com/AkshitThapar21/Omarchy-Dynamic-Island.git 
 omarchy bar move akshit.island --section center
 ```
 
-### 3. Update Plugin
+### 3. Running Adversarial Tests
+```bash
+node tests/test_adversarial.js
+```
+
+### 4. Update Plugin
 ```bash
 omarchy plugin update akshit.island
 ```
 
-### 4. Remove Plugin
+### 5. Remove Plugin
 ```bash
 omarchy plugin disable akshit.island
 omarchy plugin remove akshit.island

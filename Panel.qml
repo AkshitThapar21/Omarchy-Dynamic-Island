@@ -66,8 +66,8 @@ Panel {
   readonly property var cleanedTrack: IslandModel.cleanTrackInfo(activePlayer ? activePlayer.trackTitle : "", activePlayer ? activePlayer.trackArtist : "")
   readonly property string title: hasMedia ? cleanedTrack.title : "No Media Playing"
   readonly property string artist: hasMedia ? (cleanedTrack.artist || sourceInfo.name) : "Standby"
-  readonly property string album: activePlayer && activePlayer.trackAlbum ? activePlayer.trackAlbum : ""
-  readonly property string artUrl: activePlayer ? (activePlayer.trackArtUrl || "") : ""
+  readonly property string album: activePlayer && activePlayer.trackAlbum ? IslandModel.sanitizeString(activePlayer.trackAlbum, 80) : ""
+  readonly property string artUrl: IslandModel.sanitizeArtUrl(activePlayer ? (activePlayer.trackArtUrl || "") : "")
   readonly property string playerIdentity: sourceInfo.name
 
   readonly property color contentForeground: bar && bar.barForeground ? bar.barForeground : Color.foreground
@@ -246,6 +246,7 @@ Panel {
 
             Text {
               text: "DYNAMIC ISLAND"
+              textFormat: Text.PlainText
               color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.65)
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption
@@ -290,6 +291,7 @@ Panel {
 
               Text {
                 text: root.sourceInfo.icon
+                textFormat: Text.PlainText
                 color: root.isPlaying ? Color.accent : root.contentForeground
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.caption
@@ -300,6 +302,7 @@ Panel {
               Text {
                 id: badgeText
                 text: root.playerIdentity
+                textFormat: Text.PlainText
                 color: root.contentForeground
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.caption
@@ -318,7 +321,7 @@ Panel {
           Layout.fillWidth: true
           spacing: Style.space(12)
 
-          // Album Art or Music Glyph with smooth corner mask & source change pop
+          // Album Art or Music Glyph with bounded decoding & safe sizing
           Rectangle {
             id: artBox
             Layout.preferredWidth: Style.space(68)
@@ -364,6 +367,9 @@ Panel {
               source: root.artUrl
               fillMode: Image.PreserveAspectCrop
               asynchronous: true
+              cache: true
+              sourceSize.width: 128
+              sourceSize.height: 128
               visible: root.artUrl !== "" && status === Image.Ready
             }
 
@@ -371,6 +377,7 @@ Panel {
               anchors.centerIn: parent
               visible: !artImage.visible
               text: root.sourceInfo.icon
+              textFormat: Text.PlainText
               color: root.hasMedia ? Color.accent : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.3)
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.display
@@ -386,6 +393,7 @@ Panel {
             Text {
               Layout.fillWidth: true
               text: root.title
+              textFormat: Text.PlainText
               color: root.contentForeground
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.subtitle
@@ -397,6 +405,7 @@ Panel {
             Text {
               Layout.fillWidth: true
               text: root.artist
+              textFormat: Text.PlainText
               color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.75)
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.bodySmall
@@ -407,6 +416,7 @@ Panel {
             Text {
               Layout.fillWidth: true
               text: root.album
+              textFormat: Text.PlainText
               color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.5)
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption
@@ -417,6 +427,7 @@ Panel {
 
             Text {
               text: root.isPlaying ? "Playing on " + root.sourceInfo.name : (root.hasMedia ? "Paused" : "Idle")
+              textFormat: Text.PlainText
               color: root.isPlaying ? Color.accent : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.5)
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption
@@ -512,6 +523,7 @@ Panel {
               Text {
                 anchors.centerIn: parent
                 text: "󰒮"
+                textFormat: Text.PlainText
                 color: root.activePlayer && root.activePlayer.canGoPrevious ? root.contentForeground : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.3)
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.title
@@ -542,6 +554,7 @@ Panel {
                 anchors.centerIn: parent
                 anchors.horizontalCenterOffset: root.isPlaying ? 0 : Style.space(1.5)
                 text: root.isPlaying ? "󰏤" : "󰐊"
+                textFormat: Text.PlainText
                 color: Color.accent
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.heading
@@ -570,6 +583,7 @@ Panel {
               Text {
                 anchors.centerIn: parent
                 text: "󰒭"
+                textFormat: Text.PlainText
                 color: root.activePlayer && root.activePlayer.canGoNext ? root.contentForeground : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.3)
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.title
@@ -613,6 +627,7 @@ Panel {
               Text {
                 anchors.centerIn: parent
                 text: root.volumeIcon(root.audioVolume, root.audioMuted)
+                textFormat: Text.PlainText
                 color: root.audioMuted ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.4) : Color.accent
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.body
@@ -711,6 +726,7 @@ Panel {
             // Volume Percentage Label
             Text {
               text: (root.audioMuted ? "0" : Math.round(root.audioVolume * 100)) + "%"
+              textFormat: Text.PlainText
               color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.75)
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption
@@ -731,6 +747,7 @@ Panel {
 
           Text {
             text: "SELECT MEDIA SOURCE"
+            textFormat: Text.PlainText
             color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.5)
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.caption
@@ -743,7 +760,7 @@ Panel {
             spacing: Style.space(6)
 
             Repeater {
-              model: root.players
+              model: (root.players || []).slice(0, 6)
 
               delegate: BorderSurface {
                 required property var modelData
@@ -774,6 +791,7 @@ Panel {
 
                   Text {
                     text: modelData.isPlaying ? "󰎆" : itemSource.icon
+                    textFormat: Text.PlainText
                     color: isCurrent ? Color.accent : root.contentForeground
                     font.family: root.contentFontFamily
                     font.pixelSize: Style.font.caption
@@ -783,6 +801,7 @@ Panel {
 
                   Text {
                     text: itemSource.name
+                    textFormat: Text.PlainText
                     color: isCurrent ? Color.accent : root.contentForeground
                     font.family: root.contentFontFamily
                     font.pixelSize: Style.font.caption
@@ -826,6 +845,7 @@ Panel {
 
             Text {
               text: "󰋽"
+              textFormat: Text.PlainText
               color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.5)
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption
@@ -835,6 +855,7 @@ Panel {
             Text {
               Layout.fillWidth: true
               text: "Dynamic Island Engine active • System controls ready"
+              textFormat: Text.PlainText
               color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.5)
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption

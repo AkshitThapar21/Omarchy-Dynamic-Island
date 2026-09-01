@@ -1,59 +1,102 @@
 .pragma library
 
-// Event sources aggregator & helpers for Dynamic Island
+// Security & sanitization limits
+var MAX_STRING_LEN = 128
+var MAX_ALL_TEXT_LEN = 1024
+var MAX_TOPLEVELS_INSPECTED = 16
+var MAX_PLAYERS_INSPECTED = 10
+
+function sanitizeString(val, maxLen) {
+  if (val === null || val === undefined) return ""
+  var str = String(val)
+  // Strip control characters & null bytes
+  str = str.replace(/[\x00-\x1F\x7F]/g, "").trim()
+  var limit = maxLen || MAX_STRING_LEN
+  return str.length > limit ? str.slice(0, limit) : str
+}
+
+// Bounded artwork URL sanitizer
+function sanitizeArtUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== "string" || rawUrl.length > 512) return ""
+  var url = sanitizeString(rawUrl, 512)
+  if (!url || url.length < 5) return ""
+
+  // Deny dangerous / forbidden schemes and path traversals
+  if (/^(\.\.|\/)/.test(url) || url.indexOf("..") !== -1) return ""
+  if (/^(javascript|data|qrc|ftp|view-source|blob):/i.test(url)) return ""
+
+  // Local file scheme validation
+  if (/^file:\/\//i.test(url)) {
+    // Prohibit sensitive system/user directories
+    if (/^file:\/\/(proc|sys|dev|etc|root|var\/log)/i.test(url.replace(/^file:\/\//i, "file:/"))) return ""
+    if (/^file:\/\/\/etc/i.test(url) || /^file:\/\/\/proc/i.test(url) || /^file:\/\/\/sys/i.test(url) || /^file:\/\/\/dev/i.test(url) || /^file:\/\/\/root/i.test(url)) return ""
+    if (/\.(ssh|gnupg|bashrc|zshrc|profile|shadow|passwd)/i.test(url)) return ""
+    return url
+  }
+
+  // Remote HTTP/HTTPS scheme validation (bounded URL structure)
+  if (/^https?:\/\/[a-zA-Z0-9.-]+(?::[0-9]{1,5})?(\/[^\s<>"'{}|\\^`\x00-\x1F\x7F]*)?$/i.test(url)) {
+    return url
+  }
+
+  return ""
+}
 
 function playerKey(player) {
   if (!player) return ""
-  return String(player.dbusName || player.desktopEntry || player.identity || "")
+  var raw = player.dbusName || player.desktopEntry || player.identity || ""
+  return sanitizeString(raw, 128)
 }
 
 function resolveActivePlayer(players, preferredKey) {
-  if (!players || players.length === 0) return null
+  if (!players || !Array.isArray(players) || players.length === 0) return null
+  var list = players.slice(0, MAX_PLAYERS_INSPECTED)
 
   // 1. If the user explicitly selected a player, use it if still valid
   if (preferredKey) {
-    for (var i = 0; i < players.length; i++) {
-      if (players[i] && playerKey(players[i]) === preferredKey) {
-        return players[i]
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && playerKey(list[i]) === preferredKey) {
+        return list[i]
       }
     }
   }
 
   // 2. Playing player with metadata
-  for (var j = 0; j < players.length; j++) {
-    var p = players[j]
+  for (var j = 0; j < list.length; j++) {
+    var p = list[j]
     if (p && p.isPlaying && (p.trackTitle || p.trackArtist)) {
       return p
     }
   }
 
   // 3. Any playing player
-  for (var k = 0; k < players.length; k++) {
-    var p2 = players[k]
+  for (var k = 0; k < list.length; k++) {
+    var p2 = list[k]
     if (p2 && p2.isPlaying) {
       return p2
     }
   }
 
   // 4. Any player with metadata
-  for (var m = 0; m < players.length; m++) {
-    var p3 = players[m]
+  for (var m = 0; m < list.length; m++) {
+    var p3 = list[m]
     if (p3 && (p3.trackTitle || p3.trackArtist)) {
       return p3
     }
   }
 
-  return players[0] || null
+  return list[0] || null
 }
 
 function detectPwaFromToplevels(toplevels) {
   if (!toplevels || !Array.isArray(toplevels) || toplevels.length === 0) return null
+  var limit = Math.min(toplevels.length, MAX_TOPLEVELS_INSPECTED)
 
-  for (var i = 0; i < toplevels.length; i++) {
+  for (var i = 0; i < limit; i++) {
     var top = toplevels[i]
     if (!top) continue
-    var appId = String(top.appId || "").toLowerCase()
-    var title = String(top.title || "").toLowerCase()
+    var appId = sanitizeString(top.appId || "", 128).toLowerCase()
+    var title = sanitizeString(top.title || "", 128).toLowerCase()
 
     // 1. Apple Music PWA
     if (appId.indexOf("music.apple.com") !== -1 || appId.indexOf("apple-music") !== -1 || title.indexOf("apple music") !== -1 || title.indexOf("apple music") !== -1) {
@@ -136,7 +179,7 @@ function detectPwaFromToplevels(toplevels) {
     var pwaMatch = appId.match(/^chrome-([a-zA-Z0-9._-]+)-default$/i)
     if (pwaMatch && pwaMatch[1]) {
       var domain = pwaMatch[1].replace(/__.*$/, "").replace(/_/g, ".")
-      var clean = domain.split(".")[0]
+      var clean = sanitizeString(domain.split(".")[0], 30)
       if (clean) clean = clean.charAt(0).toUpperCase() + clean.slice(1)
       return { name: clean || "Web App", icon: "󰎆", brand: "pwa" }
     }
@@ -148,30 +191,33 @@ function detectPwaFromToplevels(toplevels) {
 function detectSource(player, toplevels) {
   if (!player) return { name: "System", icon: "󰎆", brand: "system" }
 
-  var title = String(player.trackTitle || "")
-  var artist = String(player.trackArtist || "")
-  var album = String(player.trackAlbum || "")
-  var artUrl = String(player.trackArtUrl || "")
-  var url = String(player.trackUrl || "")
-  var identity = String(player.identity || "")
-  var desktopEntry = String(player.desktopEntry || "")
-  var dbusName = String(player.dbusName || "")
+  var title = sanitizeString(player.trackTitle || "", 128)
+  var artist = sanitizeString(player.trackArtist || "", 128)
+  var album = sanitizeString(player.trackAlbum || "", 128)
+  var artUrl = sanitizeString(player.trackArtUrl || "", 256)
+  var url = sanitizeString(player.trackUrl || "", 256)
+  var identity = sanitizeString(player.identity || "", 64)
+  var desktopEntry = sanitizeString(player.desktopEntry || "", 64)
+  var dbusName = sanitizeString(player.dbusName || "", 64)
 
-  // Collect any raw metadata properties if available
+  // Bounded inspection of allowed metadata keys only
   var rawMeta = ""
-  if (player.trackMetadata) {
+  var ALLOWED_META_KEYS = [
+    "mpris:artUrl", "mpris:trackid", "mpris:length",
+    "xesam:url", "xesam:title", "xesam:artist", "xesam:album"
+  ]
+
+  var metaObj = player.trackMetadata || player.metadata
+  if (metaObj && typeof metaObj === "object") {
     try {
-      for (var k in player.trackMetadata) {
-        rawMeta += " " + String(player.trackMetadata[k] || "")
+      for (var kIdx = 0; kIdx < ALLOWED_META_KEYS.length; kIdx++) {
+        var key = ALLOWED_META_KEYS[kIdx]
+        if (key in metaObj && metaObj[key] !== undefined && metaObj[key] !== null) {
+          var valStr = sanitizeString(metaObj[key], 80)
+          if (valStr) rawMeta += " " + valStr
+        }
       }
     } catch (e) {}
-  }
-  if (player.metadata) {
-    try {
-      for (var m in player.metadata) {
-        rawMeta += " " + String(player.metadata[m] || "")
-      }
-    } catch (e2) {}
   }
 
   // PWA (Progressive Web App) and custom webapp name detection
@@ -179,14 +225,14 @@ function detectSource(player, toplevels) {
   if (desktopEntry) {
     var deClean = desktopEntry.replace(/\.desktop$/i, "").replace(/^app-/, "").replace(/^[a-z0-9._-]+-([a-zA-Z0-9]+)-Default$/, "$1").trim()
     if (deClean && !/^chrome-[a-z0-9]+-Default$/i.test(deClean) && !/^(chromium|firefox|google-chrome|brave|microsoft-edge|opera|vivaldi)$/i.test(deClean)) {
-      pwaCandidate = deClean.charAt(0).toUpperCase() + deClean.slice(1)
+      pwaCandidate = sanitizeString(deClean.charAt(0).toUpperCase() + deClean.slice(1), 30)
     }
   }
   if (!pwaCandidate && identity && !/^(Chromium|Google Chrome|Mozilla Firefox|Firefox|Brave|Microsoft Edge|Opera|Vivaldi)$/i.test(identity.trim())) {
-    pwaCandidate = identity.trim()
+    pwaCandidate = sanitizeString(identity.trim(), 30)
   }
 
-  // If the media is being hosted by a browser (Chromium, Chrome, Brave, Firefox, etc.), check if an active PWA window is open
+  // If the media is being hosted by a browser, check if an active PWA window is open
   var isBrowser = (identity.indexOf("Chromium") !== -1 || desktopEntry.indexOf("chromium") !== -1 || dbusName.indexOf("chromium") !== -1 ||
                    identity.indexOf("Chrome") !== -1 || desktopEntry.indexOf("chrome") !== -1 || dbusName.indexOf("chrome") !== -1 ||
                    identity.indexOf("Brave") !== -1 || desktopEntry.indexOf("brave") !== -1 || dbusName.indexOf("brave") !== -1 ||
@@ -200,7 +246,7 @@ function detectSource(player, toplevels) {
     }
   }
 
-  var allText = (title + " " + artist + " " + album + " " + artUrl + " " + url + " " + rawMeta + " " + identity + " " + desktopEntry + " " + dbusName).toLowerCase()
+  var allText = (title + " " + artist + " " + album + " " + artUrl + " " + url + " " + rawMeta + " " + identity + " " + desktopEntry + " " + dbusName).slice(0, MAX_ALL_TEXT_LEN).toLowerCase()
 
   // 1. YouTube Music (PWA / WebApp / Web)
   if (allText.indexOf("music.youtube") !== -1 || allText.indexOf("youtube music") !== -1 || pwaCandidate.toLowerCase() === "youtube music") {
@@ -376,16 +422,16 @@ function detectSource(player, toplevels) {
     return { name: "Opera", icon: "󰈹", brand: "opera" }
   }
 
-  var clean = identity || desktopEntry || "Media Player"
+  var clean = sanitizeString(identity || desktopEntry || "Media Player", 30)
   clean = clean.replace(/^org\.mpris\.MediaPlayer2\./, "")
   clean = clean.replace(/\.instance[0-9]+$/, "")
   clean = clean.charAt(0).toUpperCase() + clean.slice(1)
-  return { name: clean, icon: "󰎆", brand: "generic" }
+  return { name: clean || "Media Player", icon: "󰎆", brand: "generic" }
 }
 
 function cleanTrackInfo(title, artist) {
-  var cleanTitle = String(title || "").trim()
-  var cleanArtist = String(artist || "").trim()
+  var cleanTitle = sanitizeString(title || "", 180)
+  var cleanArtist = sanitizeString(artist || "", 120)
 
   // Remove common website suffixes from title
   cleanTitle = cleanTitle.replace(/\s*-\s*YouTube(?:\s*Music)?\s*$/i, "")
@@ -407,9 +453,12 @@ function cleanTrackInfo(title, artist) {
     }
   }
 
+  var finalTitle = sanitizeString(cleanTitle || (title ? String(title) : "No Track"), 120)
+  var finalArtist = sanitizeString(cleanArtist || (artist ? String(artist) : ""), 80)
+
   return {
-    title: cleanTitle || (title ? String(title) : "No Track"),
-    artist: cleanArtist || (artist ? String(artist) : "")
+    title: finalTitle || "No Track",
+    artist: finalArtist
   }
 }
 
