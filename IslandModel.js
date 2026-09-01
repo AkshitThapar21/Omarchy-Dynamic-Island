@@ -49,47 +49,57 @@ function playerKey(player) {
 }
 
 function resolveActivePlayer(players, preferredKey) {
-  if (!players || !Array.isArray(players) || players.length === 0) return null
-  var list = players.slice(0, MAX_PLAYERS_INSPECTED)
+  if (!players || !players.length || players.length === 0) return null
+  var limit = Math.min(players.length, MAX_PLAYERS_INSPECTED)
 
   // 1. If the user explicitly selected a player, use it if still valid
   if (preferredKey) {
-    for (var i = 0; i < list.length; i++) {
-      if (list[i] && playerKey(list[i]) === preferredKey) {
-        return list[i]
+    for (var i = 0; i < limit; i++) {
+      if (players[i] && playerKey(players[i]) === preferredKey) {
+        return players[i]
       }
     }
   }
 
   // 2. Playing player with metadata
-  for (var j = 0; j < list.length; j++) {
-    var p = list[j]
+  for (var j = 0; j < limit; j++) {
+    var p = players[j]
     if (p && p.isPlaying && (p.trackTitle || p.trackArtist)) {
       return p
     }
   }
 
   // 3. Any playing player
-  for (var k = 0; k < list.length; k++) {
-    var p2 = list[k]
+  for (var k = 0; k < limit; k++) {
+    var p2 = players[k]
     if (p2 && p2.isPlaying) {
       return p2
     }
   }
 
   // 4. Any player with metadata
-  for (var m = 0; m < list.length; m++) {
-    var p3 = list[m]
+  for (var m = 0; m < limit; m++) {
+    var p3 = players[m]
     if (p3 && (p3.trackTitle || p3.trackArtist)) {
       return p3
     }
   }
 
-  return list[0] || null
+  return players[0] || null
+}
+
+function boundPlayerList(players, maxCount) {
+  if (!players || !players.length) return []
+  var res = []
+  var count = Math.min(players.length, maxCount || 6)
+  for (var i = 0; i < count; i++) {
+    if (players[i]) res.push(players[i])
+  }
+  return res
 }
 
 function detectPwaFromToplevels(toplevels) {
-  if (!toplevels || !Array.isArray(toplevels) || toplevels.length === 0) return null
+  if (!toplevels || !toplevels.length || toplevels.length === 0) return null
   var limit = Math.min(toplevels.length, MAX_TOPLEVELS_INSPECTED)
 
   for (var i = 0; i < limit; i++) {
@@ -239,7 +249,7 @@ function detectSource(player, toplevels) {
                    identity.indexOf("Firefox") !== -1 || desktopEntry.indexOf("firefox") !== -1 || dbusName.indexOf("firefox") !== -1 ||
                    identity.indexOf("Mozilla") !== -1)
 
-  if (isBrowser && toplevels && Array.isArray(toplevels)) {
+  if (isBrowser && toplevels && toplevels.length) {
     var pwaFound = detectPwaFromToplevels(toplevels)
     if (pwaFound) {
       return pwaFound

@@ -760,7 +760,7 @@ Panel {
             spacing: Style.space(6)
 
             Repeater {
-              model: (root.players || []).slice(0, 6)
+              model: IslandModel.boundPlayerList(root.players, 6)
 
               delegate: BorderSurface {
                 required property var modelData
