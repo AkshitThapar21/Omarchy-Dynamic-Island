@@ -723,23 +723,6 @@ Panel {
             }
           }
         }
-
-        // 6. Keyboard Shortcuts Footer
-        RowLayout {
-          Layout.fillWidth: true
-          spacing: Style.space(6)
-
-          Text {
-            Layout.fillWidth: true
-            text: "Space: Play/Pause  •  ←/→: Tracks  •  ↑/↓: Vol  •  Esc: Close"
-            color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.4)
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.caption
-            horizontalAlignment: Text.AlignHCenter
-            elide: Text.ElideRight
-            renderType: Text.NativeRendering
-          }
-        }
       }
     }
   }

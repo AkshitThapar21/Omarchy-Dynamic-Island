@@ -9,16 +9,8 @@ A sleek, interactive dynamic island bar-widget for Omarchy Quattro that expands 
 - **MPRIS Controls:** Play/Pause, Next Track, and Previous Track controls with live status sync.
 - **Live Audio Waveform:** 32-bar animated harmonic waveform layer rendered behind the playback controls.
 - **Interactive Volume Slider:** Pipewire-integrated volume scrubbing slider with live percentage badge and mute toggle.
-- **Web App & PWA Detection:** Recognizes PWAs (Apple Music, YouTube Music, Spotify, Plex, Jellyfin, etc.) and web media directly via Wayland toplevel detection.
+- **Web App & PWA Detection:** Recognizes PWAs (Apple Music, YouTube Music, Spotify, Plex, Jellyfin, etc.) and web media directly via Wayland toplevel mapping.
 - **Multi-Player Support:** Detects and switches between active media players (Spotify, Firefox, Chromium, Apple Music, VLC, mpv, etc.).
-- **Keyboard Navigation:** Uses `PanelKeyCatcher`:
-  - `Space` — Toggle Play/Pause
-  - `←` / `h` / `p` — Previous Track
-  - `→` / `l` / `n` — Next Track
-  - `↑` / `+` / `k` — Volume Up (+5%)
-  - `↓` / `-` / `j` — Volume Down (-5%)
-  - `m` — Toggle Mute
-  - `Esc` — Dismiss Panel
 - **Zero Hardcoded Colors:** 100% theme-adaptive via `qs.Commons Style` and `Color` design tokens.
 
 ## Requirements
@@ -30,7 +22,7 @@ A sleek, interactive dynamic island bar-widget for Omarchy Quattro that expands 
 
 ### 1. Install via Git
 ```bash
-omarchy plugin add https://github.com/<your-username>/omarchy-dynamic-island.git --enable
+omarchy plugin add https://github.com/AkshitThapar21/Omarchy-Dynamic-Island.git --enable
 ```
 
 ### 2. Positioning on the Bar
