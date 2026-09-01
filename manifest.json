@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "akshit.island",
+  "name": "Dynamic Island",
+  "version": "1.0.0",
+  "author": "Akshit",
+  "description": "An interactive dynamic island bar pill that expands on hover to show now playing tracks, media controls, and quick system events.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Dynamic Island",
+    "description": "Dynamic island bar pill with hover expansion and media controls",
+    "category": "Media",
+    "defaultSection": "center",
+    "allowMultiple": false
+  }
+}
