@@ -157,6 +157,18 @@ Panel {
         anchors.right: parent.right
         anchors.top: parent.top
         spacing: Style.space(12)
+        transformOrigin: Item.Top
+
+        // Smooth popup opening entrance animation
+        opacity: root.opened ? 1.0 : 0.0
+        scale: root.opened ? 1.0 : 0.94
+
+        Behavior on opacity {
+          NumberAnimation { duration: 180; easing.type: Easing.OutQuad }
+        }
+        Behavior on scale {
+          NumberAnimation { duration: 220; easing.type: Easing.OutBack }
+        }
 
         // 1. Header Bar: Island Identity & Source Badge
         RowLayout {
@@ -201,6 +213,21 @@ Panel {
             color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.08)
             borderSpec: Border.flat(Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.15), 1)
 
+            // Smooth scale bounce on sound source change
+            scale: 1.0
+
+            SequentialAnimation on scale {
+              id: badgePopAnim
+              running: false
+              NumberAnimation { from: 0.88; to: 1.06; duration: 130; easing.type: Easing.OutQuad }
+              NumberAnimation { from: 1.06; to: 1.0; duration: 110; easing.type: Easing.OutBack }
+            }
+
+            Connections {
+              target: root
+              function onPlayerIdentityChanged() { badgePopAnim.restart() }
+            }
+
             Row {
               id: badgeRow
               spacing: Style.space(5)
@@ -236,7 +263,7 @@ Panel {
           Layout.fillWidth: true
           spacing: Style.space(12)
 
-          // Album Art or Music Glyph with smooth corner mask
+          // Album Art or Music Glyph with smooth corner mask & source change pop
           Rectangle {
             id: artBox
             Layout.preferredWidth: Style.space(68)
@@ -247,6 +274,34 @@ Panel {
             border.color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.15)
             layer.enabled: true
             layer.smooth: true
+
+            scale: 1.0
+            opacity: 1.0
+
+            SequentialAnimation on scale {
+              id: artPopAnim
+              running: false
+              NumberAnimation { from: 0.91; to: 1.04; duration: 140; easing.type: Easing.OutQuad }
+              NumberAnimation { from: 1.04; to: 1.0; duration: 120; easing.type: Easing.OutBack }
+            }
+
+            SequentialAnimation on opacity {
+              id: artFadeAnim
+              running: false
+              NumberAnimation { from: 0.4; to: 1.0; duration: 200; easing.type: Easing.OutQuad }
+            }
+
+            Connections {
+              target: root
+              function onTitleChanged() {
+                artPopAnim.restart()
+                artFadeAnim.restart()
+              }
+              function onSelectedPlayerKeyChanged() {
+                artPopAnim.restart()
+                artFadeAnim.restart()
+              }
+            }
 
             Image {
               id: artImage
@@ -646,6 +701,16 @@ Panel {
                   ? Style.hoverFillFor(Color.accent, Color.accent)
                   : (chipMouse.containsMouse ? Style.hoverFillFor(root.contentForeground, root.contentForeground) : "transparent")
                 borderSpec: Border.flat(isCurrent ? Color.accent : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.15), 1)
+
+                scale: isCurrent ? 1.04 : (chipMouse.containsMouse ? 1.02 : 1.0)
+
+                Behavior on scale {
+                  NumberAnimation { duration: 160; easing.type: Easing.OutBack }
+                }
+
+                Behavior on color {
+                  ColorAnimation { duration: 140 }
+                }
 
                 Row {
                   id: chipRow

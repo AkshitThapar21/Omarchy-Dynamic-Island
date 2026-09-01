@@ -174,6 +174,10 @@ BarWidget {
       ColorAnimation { duration: 140 }
     }
 
+    Behavior on implicitWidth {
+      NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+    }
+
     // 1. Idle Compact Icon (Centered when no media)
     Text {
       anchors.centerIn: parent
