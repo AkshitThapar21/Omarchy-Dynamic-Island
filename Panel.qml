@@ -57,15 +57,15 @@ Panel {
 
   // MPRIS Services & Active Player Resolution
   readonly property var players: Mpris.players ? Mpris.players.values : []
-  readonly property var activePlayer: IslandModel.resolveActivePlayer(players, selectedPlayerKey)
-  readonly property bool hasMedia: activePlayer !== null && (activePlayer.trackTitle || activePlayer.trackArtist)
-  readonly property bool isPlaying: activePlayer ? (activePlayer.isPlaying === true) : false
+  readonly property var activePlayer: IslandModel.resolveActivePlayer(players, selectedPlayerKey || (hostWidget ? hostWidget.configuredPreferredPlayer : ""))
+  readonly property bool hasMedia: activePlayer !== null && (activePlayer.trackTitle || activePlayer.trackArtist) && (activePlayer.isPlaying || activePlayer.canTogglePlaying || activePlayer.canPlay || activePlayer.canPause)
+  readonly property bool isPlaying: activePlayer ? (activePlayer.isPlaying === true && (activePlayer.canTogglePlaying || activePlayer.canPause || activePlayer.canPlay)) : false
 
   // Real Brand / Source Detection & Clean Metadata
   readonly property var sourceInfo: IslandModel.detectSource(activePlayer, toplevels)
   readonly property var cleanedTrack: IslandModel.cleanTrackInfo(activePlayer ? activePlayer.trackTitle : "", activePlayer ? activePlayer.trackArtist : "")
   readonly property string title: hasMedia ? cleanedTrack.title : "No Media Playing"
-  readonly property string artist: hasMedia ? (cleanedTrack.artist || sourceInfo.name) : "Standby"
+  readonly property string artist: hasMedia ? cleanedTrack.artist : ""
   readonly property string album: activePlayer && activePlayer.trackAlbum ? IslandModel.sanitizeString(activePlayer.trackAlbum, 80) : ""
   readonly property string artUrl: IslandModel.sanitizeArtUrl(activePlayer ? (activePlayer.trackArtUrl || "") : "")
   readonly property string playerIdentity: sourceInfo.name
@@ -99,6 +99,8 @@ Panel {
     if (p && p.canGoPrevious) p.previous()
   }
 
+  readonly property bool animationsEnabled: bar ? bar.foregroundAnimationEnabled : true
+
   PopupCard {
     id: panel
     anchorItem: root.anchorItem
@@ -106,7 +108,7 @@ Panel {
     open: root.opened
     centerOnBar: true
     triggerMode: "hover"
-    contentWidth: panel.fittedContentWidth(Style.space(380))
+    contentWidth: panel.fittedContentWidth(Style.space(root.hostWidget ? root.hostWidget.configuredPanelWidth : 380))
     contentHeight: panel.fittedContentHeight(mainColumn.implicitHeight)
 
     onOpenChanged: {
@@ -168,32 +170,32 @@ Panel {
             property: "animProgress"
             from: 0.0
             to: 1.0
-            duration: 320
+            duration: root.animationsEnabled ? 320 : 0
             easing.type: Easing.OutCubic
           }
           NumberAnimation {
             target: animWrapper
             property: "animScale"
-            from: 0.88
+            from: root.animationsEnabled ? 0.88 : 1.0
             to: 1.0
-            duration: 340
+            duration: root.animationsEnabled ? 340 : 0
             easing.type: Easing.OutBack
-            easing.overshoot: 1.14
+            easing.overshoot: root.animationsEnabled ? 1.14 : 1.0
           }
           NumberAnimation {
             target: animWrapper
             property: "animY"
-            from: -16
+            from: root.animationsEnabled ? -16 : 0
             to: 0
-            duration: 300
+            duration: root.animationsEnabled ? 300 : 0
             easing.type: Easing.OutCubic
           }
           NumberAnimation {
             target: animWrapper
             property: "animOpacity"
-            from: 0.0
+            from: root.animationsEnabled ? 0.0 : 1.0
             to: 1.0
-            duration: 220
+            duration: root.animationsEnabled ? 220 : 0
             easing.type: Easing.OutQuad
           }
         }
@@ -411,6 +413,7 @@ Panel {
               font.pixelSize: Style.font.bodySmall
               elide: Text.ElideRight
               renderType: Text.NativeRendering
+              visible: root.artist !== "" && root.artist !== root.title
             }
 
             Text {
@@ -422,7 +425,7 @@ Panel {
               font.pixelSize: Style.font.caption
               elide: Text.ElideRight
               renderType: Text.NativeRendering
-              visible: root.album !== ""
+              visible: root.album !== "" && root.album !== root.title && root.album !== root.artist
             }
 
             Text {
@@ -485,7 +488,7 @@ Panel {
                   implicitHeight: root.isPlaying ? minH : idleHeight
 
                   SequentialAnimation on height {
-                    running: root.isPlaying
+                    running: root.isPlaying && root.opened && root.animationsEnabled
                     loops: Animation.Infinite
                     NumberAnimation {
                       from: waveBar.minH

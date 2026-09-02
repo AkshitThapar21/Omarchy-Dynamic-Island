@@ -12,12 +12,28 @@ BarWidget {
   id: root
   moduleName: "akshit.island"
 
+  // Configurability Settings
+  readonly property int hoverOpenDelay: Math.max(0, root.setting("hoverOpenDelay", 160))
+  readonly property int hoverCloseDelay: Math.max(0, root.setting("hoverCloseDelay", 280))
+  readonly property int configuredPanelWidth: Math.max(280, root.setting("panelWidth", 380))
+  readonly property string configuredPreferredPlayer: root.setting("preferredPlayer", "")
+
   // MPRIS Service tracking & selection
   property string selectedPlayerKey: ""
   readonly property var players: Mpris.players ? Mpris.players.values : []
-  readonly property var activePlayer: IslandModel.resolveActivePlayer(players, selectedPlayerKey)
-  readonly property bool hasMedia: activePlayer !== null && (activePlayer.trackTitle || activePlayer.trackArtist)
-  readonly property bool isPlaying: activePlayer ? (activePlayer.isPlaying === true) : false
+  readonly property var activePlayer: IslandModel.resolveActivePlayer(players, selectedPlayerKey || configuredPreferredPlayer)
+  readonly property bool hasMedia: activePlayer !== null && (activePlayer.trackTitle || activePlayer.trackArtist) && (activePlayer.isPlaying || activePlayer.canTogglePlaying || activePlayer.canPlay || activePlayer.canPause)
+  readonly property bool isPlaying: activePlayer ? (activePlayer.isPlaying === true && (activePlayer.canTogglePlaying || activePlayer.canPause || activePlayer.canPlay)) : false
+
+  // Reduced motion support
+  readonly property bool animationsEnabled: root.bar ? root.bar.foregroundAnimationEnabled : true
+
+  // Keyboard accessibility
+  focus: true
+  activeFocusOnTab: true
+  Keys.onReturnPressed: root.togglePanel()
+  Keys.onSpacePressed: root.togglePanel()
+  Keys.onEscapePressed: if (root.opened) root.close()
 
   // Wayland toplevels for deep PWA detection
   readonly property var toplevels: ToplevelManager.toplevels ? ToplevelManager.toplevels.values : []
@@ -63,7 +79,7 @@ BarWidget {
     if (panelLoader.item && panelLoader.item.refresh) panelLoader.item.refresh()
   }
 
-  // Debounced hover logic
+  // Debounced single-shot hover logic with cross-timer cancellation
   onHoverActiveChanged: {
     if (hoverActive) {
       closeTimer.stop()
@@ -80,7 +96,7 @@ BarWidget {
 
   Timer {
     id: openTimer
-    interval: 160
+    interval: root.hoverOpenDelay
     repeat: false
     onTriggered: {
       if (root.hoverActive && !root.opened) {
@@ -91,7 +107,7 @@ BarWidget {
 
   Timer {
     id: closeTimer
-    interval: 280
+    interval: root.hoverCloseDelay
     repeat: false
     onTriggered: {
       if (!root.hoverActive && root.opened) {
@@ -161,20 +177,24 @@ BarWidget {
     }
 
     radius: Math.round(implicitHeight / 2)
-    color: root.hoverActive || root.opened
+    color: root.hoverActive || root.opened || root.activeFocus
       ? Style.hoverFillFor(fg, fg)
       : (root.isPlaying ? Qt.rgba(fg.r, fg.g, fg.b, 0.12) : Qt.rgba(fg.r, fg.g, fg.b, 0.06))
 
     borderSpec: Border.flat(
-      root.hoverActive || root.opened ? Color.accent : Qt.rgba(fg.r, fg.g, fg.b, 0.18),
-      1
+      root.activeFocus
+        ? Color.accent
+        : (root.hoverActive || root.opened ? Color.accent : Qt.rgba(fg.r, fg.g, fg.b, 0.18)),
+      root.activeFocus ? 2 : 1
     )
 
     Behavior on color {
+      enabled: root.animationsEnabled
       ColorAnimation { duration: 140 }
     }
 
     Behavior on implicitWidth {
+      enabled: root.animationsEnabled
       NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
     }
 
@@ -219,7 +239,7 @@ BarWidget {
             radius: 1
             color: pillContainer.fg
             SequentialAnimation on height {
-              running: root.isPlaying
+              running: root.isPlaying && root.animationsEnabled
               loops: Animation.Infinite
               NumberAnimation { from: Style.space(3); to: Style.space(12); duration: 280; easing.type: Easing.InOutQuad }
               NumberAnimation { from: Style.space(12); to: Style.space(3); duration: 280; easing.type: Easing.InOutQuad }
@@ -233,7 +253,7 @@ BarWidget {
             radius: 1
             color: pillContainer.fg
             SequentialAnimation on height {
-              running: root.isPlaying
+              running: root.isPlaying && root.animationsEnabled
               loops: Animation.Infinite
               NumberAnimation { from: Style.space(12); to: Style.space(4); duration: 220; easing.type: Easing.InOutQuad }
               NumberAnimation { from: Style.space(4); to: Style.space(12); duration: 220; easing.type: Easing.InOutQuad }
@@ -247,7 +267,7 @@ BarWidget {
             radius: 1
             color: pillContainer.fg
             SequentialAnimation on height {
-              running: root.isPlaying
+              running: root.isPlaying && root.animationsEnabled
               loops: Animation.Infinite
               NumberAnimation { from: Style.space(2); to: Style.space(9); duration: 320; easing.type: Easing.InOutQuad }
               NumberAnimation { from: Style.space(9); to: Style.space(2); duration: 320; easing.type: Easing.InOutQuad }
@@ -297,7 +317,7 @@ BarWidget {
           font.pixelSize: Style.font.caption
           elide: Text.ElideRight
           renderType: Text.NativeRendering
-          visible: root.artist !== ""
+          visible: root.artist !== "" && root.artist !== root.title
           Layout.alignment: Qt.AlignVCenter
           Layout.maximumWidth: Style.space(70)
         }

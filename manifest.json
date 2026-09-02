@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "akshit.island",
   "name": "Dynamic Island",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Akshit",
   "description": "An interactive dynamic island bar pill that expands on hover to show now playing tracks, media controls, and quick system events.",
   "kinds": [
@@ -16,6 +16,42 @@
     "description": "Dynamic island bar pill with hover expansion and media controls",
     "category": "Media",
     "defaultSection": "center",
-    "allowMultiple": false
+    "allowMultiple": false,
+    "schema": [
+      {
+        "key": "hoverOpenDelay",
+        "type": "integer",
+        "label": "Hover Open Delay (ms)",
+        "description": "Delay in milliseconds before expanding the panel on cursor hover.",
+        "defaultValue": 160,
+        "min": 0,
+        "max": 1000
+      },
+      {
+        "key": "hoverCloseDelay",
+        "type": "integer",
+        "label": "Hover Close Delay (ms)",
+        "description": "Delay in milliseconds before closing the panel after cursor leaves.",
+        "defaultValue": 280,
+        "min": 0,
+        "max": 2000
+      },
+      {
+        "key": "panelWidth",
+        "type": "integer",
+        "label": "Panel Width (px)",
+        "description": "Width in pixels for the expanded dynamic island panel.",
+        "defaultValue": 380,
+        "min": 280,
+        "max": 600
+      },
+      {
+        "key": "preferredPlayer",
+        "type": "string",
+        "label": "Preferred Player",
+        "description": "Optional MPRIS identity to prioritize when multiple media players are active (e.g. Spotify, Apple Music, VLC).",
+        "defaultValue": ""
+      }
+    ]
   }
 }

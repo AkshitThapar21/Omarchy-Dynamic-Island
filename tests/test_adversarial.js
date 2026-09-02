@@ -107,6 +107,12 @@ assert(cleaned1.title === 'Never Gonna Give You Up', 'Stripped web music platfor
 const cleaned2 = sandbox.cleanTrackInfo('Drake - Hotline Bling', '');
 assert(cleaned2.title === 'Hotline Bling' && cleaned2.artist === 'Drake', 'Cleanly parsed "Artist - Title" without metadata collision');
 
+const cleaned3 = sandbox.cleanTrackInfo('Dua Lipa - Levitating', 'Dua Lipa');
+assert(cleaned3.title === 'Levitating' && cleaned3.artist === 'Dua Lipa', 'Stripped duplicate artist from title when artist field is present');
+
+const cleaned4 = sandbox.cleanTrackInfo('Only Title', 'Only Title');
+assert(cleaned4.title === 'Only Title' && cleaned4.artist === '', 'Cleared artist when title and artist are identical to prevent duplicate display');
+
 const xssTrack = sandbox.cleanTrackInfo('<style>body{display:none}</style>Song Name', '<img src=x onerror=1>');
 assert(!xssTrack.title.includes('\x00') && xssTrack.title.length <= 120, 'Safely sanitized rich-text track metadata');
 
