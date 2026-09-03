@@ -21,6 +21,10 @@ All notable changes to the **Dynamic Island** plugin (`akshit.island`) are docum
 - **Reduced Motion Support:** Respects shell `animationsEnabled` and `foregroundAnimationEnabled` flags, disabling spring overshoot and easing transitions for motion-sensitive environments.
 
 ### Optimized & Hardened
+- **Strict Remote Origin Allowlist:** Restricted cover art fetching to trusted media CDNs (Spotify, YouTube, Apple Music, SoundCloud, Bandcamp, Deezer, Tidal) over HTTPS on default port 443; rejected unwhitelisted hosts and custom ports.
+- **Positive Local Root Allowlist & Canonicalization:** Local cover paths decode percent-encoding, resolve traversal sequences, and strictly enforce positive allowed directory roots (`/tmp/`, `/var/tmp/`, `~/.cache/`, `~/.local/share/icons/`, `~/.local/share/thumbnails/`).
+- **Pre-Conversion Type Bounds:** Metadata inspection type-checks before string conversion, slicing native string buffers and bounding array items (max 5 items, 40 chars each) to protect against memory allocation attacks.
+- **Generation-Bound Artwork Loader:** Artwork requests use a monotonic generation counter with cancellation and stale-result rejection during rapid track/player switches.
 - **Resource Discipline:** Waveform visualizer animations automatically pause when the panel is closed or playback stops, ensuring 0% background CPU usage.
 - **Debounced Hover Timers:** Single-shot timers with opposing cross-cancellation to prevent animation racing during rapid cursor hover.
 - **Failure Resilience:** Late DBus registration recovery and graceful handling of abruptly terminated media players without UI hangs.

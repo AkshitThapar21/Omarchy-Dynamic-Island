@@ -58,10 +58,33 @@ const dangerousUrls = [
   'file:///root/.ssh/id_rsa',
   'file:///home/user/.ssh/id_rsa',
   'file:///home/user/.gnupg/secring.gpg',
+  'file:///home/user/.config/secrets.env',
   'qrc:///qt/etc/passwd',
   'ftp://evil.com/bomb.png',
   '../../../../etc/passwd',
   'file://' + 'a'.repeat(600), // Overlength
+  // Encoded and traversal variants
+  'file:///tmp/%2e%2e/%2e%2e/etc/passwd',
+  'file:///tmp/..%2f..%2fproc%2fkcore',
+  'file:///home/user/.cache/..%2f.ssh/id_rsa',
+  // Arbitrary and unwhitelisted remote origins (MUST BE REJECTED)
+  'https://evil.com/decompression_bomb.png',
+  'https://attacker.org/image.jpg',
+  'https://169.254.169.254/latest/meta-data',
+  'https://127.0.0.1:8080/exploit.png',
+  'https://i.scdn.co:8443/image.png', // Non-default port
+  'http://i.scdn.co/insecure.png',     // Insecure plaintext HTTP
+  'https://attacker-i.scdn.co/fake.png',
+  'https://i.scdn.co.evil.com/fake.png',
+  // Arbitrary local files in /tmp/ (MUST BE REJECTED by narrowed pattern allowlist)
+  'file:///tmp/foo.jpg',
+  'file:///tmp/arbitrary_symlink.png',
+  'file:///tmp/nested/dir/.org.chromium.Chromium.abc',
+  'file:///home/user/.cache/amberol/private.txt',
+  'file:///home/user/.cache/amberol/id_rsa',
+  'file:///var/.cache/amberol/cover.jpg', // Unanchored outside user home
+  'file:///tmp/@user/.org.chromium.Chromium.abc',
+  'https://i.scdn.co@evil.com/fake.png',
   null,
   undefined,
   12345,
@@ -70,17 +93,37 @@ const dangerousUrls = [
 
 for (const badUrl of dangerousUrls) {
   const sanitized = sandbox.sanitizeArtUrl(badUrl);
-  assert(sanitized === '', `Blocked dangerous artwork input: ${String(badUrl).slice(0, 45)}`);
+  assert(sanitized === '', `Blocked dangerous/untrusted artwork input: ${String(badUrl).slice(0, 50)}`);
 }
 
-// Valid URLs
+// Positive Allowed URLs
 assert(
   sandbox.sanitizeArtUrl('file:///tmp/.org.chromium.Chromium.C3Zzex') === 'file:///tmp/.org.chromium.Chromium.C3Zzex',
-  'Allowed safe local temp cover art URI'
+  'Allowed safe Chromium temp cover art URI (/tmp/.org.chromium...)'
+);
+assert(
+  sandbox.sanitizeArtUrl('file:///var/tmp/.org.chromium.Chromium.X9Zza') === 'file:///var/tmp/.org.chromium.Chromium.X9Zza',
+  'Allowed safe Chromium var/tmp cover art URI (/var/tmp/.org.chromium...)'
+);
+assert(
+  sandbox.sanitizeArtUrl('file:///tmp/spotify-cover-12345.jpg') === 'file:///tmp/spotify-cover-12345.jpg',
+  'Allowed safe Spotify temp cover art URI (/tmp/spotify-cover-*.jpg)'
+);
+assert(
+  sandbox.sanitizeArtUrl('file:///home/user/.cache/amberol/cover.jpg') === 'file:///home/user/.cache/amberol/cover.jpg',
+  'Allowed safe user cache cover art URI (~/.cache/amberol/*.jpg)'
 );
 assert(
   sandbox.sanitizeArtUrl('https://i.scdn.co/image/ab67616d0000b273b5c1a8d0524458cf680be635') === 'https://i.scdn.co/image/ab67616d0000b273b5c1a8d0524458cf680be635',
-  'Allowed safe HTTPS Spotify cover art URI'
+  'Allowed safe HTTPS Spotify CDN cover art URI'
+);
+assert(
+  sandbox.sanitizeArtUrl('https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg') === 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
+  'Allowed safe HTTPS YouTube CDN cover art URI'
+);
+assert(
+  sandbox.sanitizeArtUrl('https://is1-ssl.mzstatic.com/image/thumb/Music/v4/cover.jpg') === 'https://is1-ssl.mzstatic.com/image/thumb/Music/v4/cover.jpg',
+  'Allowed safe HTTPS Apple Music CDN cover art URI'
 );
 
 // ----------------------------------------------------
@@ -117,16 +160,34 @@ const xssTrack = sandbox.cleanTrackInfo('<style>body{display:none}</style>Song N
 assert(!xssTrack.title.includes('\x00') && xssTrack.title.length <= 120, 'Safely sanitized rich-text track metadata');
 
 // ----------------------------------------------------
-// 4. Metadata Dictionary Bombing
+// 4. Metadata Dictionary & Compound Variant Bombing
 // ----------------------------------------------------
-console.log('\n4. Metadata Dictionary Bombing Tests:');
+console.log('\n4. Metadata Dictionary & Compound Variant Bombing Tests:');
 
-const bombMetadata = {};
+// Test 1: Giant Array inside xesam:artist (100,000 items)
+const giantArray = new Array(100000).fill('SpamArtistName');
+const sanitizedArray = sandbox.sanitizeString(giantArray, 80);
+assert(sanitizedArray.length <= 80 && sanitizedArray.includes('SpamArtistName'), 'Pre-conversion bounded 100k array items without materializing full array');
+
+// Test 2: Giant 5MB string
+const giantString = 'B'.repeat(5000000);
+const sanitizedGiantString = sandbox.sanitizeString(giantString, 80);
+assert(sanitizedGiantString.length <= 80, 'Sliced 5MB string native buffer before processing');
+
+// Test 3: Nested compound object
+const nestedObj = { deep: { deeper: { bomb: 'X'.repeat(5000) } } };
+const sanitizedObj = sandbox.sanitizeString(nestedObj, 80);
+assert(sanitizedObj === '', 'Rejected unsupported nested object compound variant');
+
+// Test 4: 5,000 keys with large payloads
+const bombMetadata = {
+  'xesam:title': 'Legitimate Song',
+  'xesam:artist': giantArray,
+  'xesam:album': nestedObj
+};
 for (let i = 0; i < 5000; i++) {
-  bombMetadata[`custom_junk_key_${i}`] = 'X'.repeat(500);
+  bombMetadata[`custom_junk_key_${i}`] = 'X'.repeat(5000);
 }
-bombMetadata['xesam:title'] = 'Legitimate Song';
-bombMetadata['xesam:artist'] = 'Legitimate Artist';
 
 const testPlayer = {
   dbusName: 'org.mpris.MediaPlayer2.spotify',
@@ -136,8 +197,10 @@ const testPlayer = {
   trackMetadata: bombMetadata
 };
 
+const startTime = Date.now();
 const sourceResult = sandbox.detectSource(testPlayer, []);
-assert(sourceResult.name === 'Spotify', `Safely parsed metadata bomb with 5,000 keys without hanging or memory explosion`);
+const elapsedMs = Date.now() - startTime;
+assert(sourceResult.name === 'Spotify' && elapsedMs < 200, `Safely parsed metadata dictionary bomb with 5,000 keys in ${elapsedMs}ms`);
 
 // ----------------------------------------------------
 // 5. Large Collection & Toplevel Scaling Tests

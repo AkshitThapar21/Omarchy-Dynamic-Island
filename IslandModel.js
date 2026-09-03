@@ -6,37 +6,209 @@ var MAX_ALL_TEXT_LEN = 1024
 var MAX_TOPLEVELS_INSPECTED = 16
 var MAX_PLAYERS_INSPECTED = 10
 
-function sanitizeString(val, maxLen) {
-  if (val === null || val === undefined) return ""
-  var str = String(val)
-  // Strip control characters & null bytes
-  str = str.replace(/[\x00-\x1F\x7F]/g, "").trim()
+// Strict positive allowlist for remote cover art CDNs (HTTPS only, default port 443)
+var ALLOWED_REMOTE_ORIGINS = [
+  // Spotify
+  "i.scdn.co",
+  "image-cdn-ak.spotifycdn.com",
+  "image-cdn-fa.spotifycdn.com",
+  "mosaic.scdn.co",
+  // YouTube & Google Media
+  "i.ytimg.com",
+  "yt3.ggpht.com",
+  "lh3.googleusercontent.com",
+  // Apple Music
+  "is1-ssl.mzstatic.com",
+  "is2-ssl.mzstatic.com",
+  "is3-ssl.mzstatic.com",
+  "is4-ssl.mzstatic.com",
+  "is5-ssl.mzstatic.com",
+  // SoundCloud
+  "i1.sndcdn.com",
+  "a1.sndcdn.com",
+  // Bandcamp
+  "f4.bcbits.com",
+  "f1.bcbits.com",
+  // Deezer
+  "e-cdns-images.dzcdn.net",
+  "cdns-images.dzcdn.net",
+  // Tidal
+  "resources.tidal.com"
+]
+
+// Strict pre-conversion type-checking and value sanitization
+function sanitizeValue(val, maxLen) {
   var limit = maxLen || MAX_STRING_LEN
-  return str.length > limit ? str.slice(0, limit) : str
-}
+  if (val === null || val === undefined) return ""
 
-// Bounded artwork URL sanitizer
-function sanitizeArtUrl(rawUrl) {
-  if (!rawUrl || typeof rawUrl !== "string" || rawUrl.length > 512) return ""
-  var url = sanitizeString(rawUrl, 512)
-  if (!url || url.length < 5) return ""
-
-  // Deny dangerous / forbidden schemes and path traversals
-  if (/^(\.\.|\/)/.test(url) || url.indexOf("..") !== -1) return ""
-  if (/^(javascript|data|qrc|ftp|view-source|blob):/i.test(url)) return ""
-
-  // Local file scheme validation
-  if (/^file:\/\//i.test(url)) {
-    // Prohibit sensitive system/user directories
-    if (/^file:\/\/(proc|sys|dev|etc|root|var\/log)/i.test(url.replace(/^file:\/\//i, "file:/"))) return ""
-    if (/^file:\/\/\/etc/i.test(url) || /^file:\/\/\/proc/i.test(url) || /^file:\/\/\/sys/i.test(url) || /^file:\/\/\/dev/i.test(url) || /^file:\/\/\/root/i.test(url)) return ""
-    if (/\.(ssh|gnupg|bashrc|zshrc|profile|shadow|passwd)/i.test(url)) return ""
-    return url
+  var t = typeof val
+  if (t === "string") {
+    // Slice native string FIRST before any processing to prevent memory materialization of huge strings
+    var raw = val.slice(0, limit)
+    return raw.replace(/[\x00-\x1F\x7F]/g, "").trim()
   }
 
-  // Remote HTTP/HTTPS scheme validation (bounded URL structure)
-  if (/^https?:\/\/[a-zA-Z0-9.-]+(?::[0-9]{1,5})?(\/[^\s<>"'{}|\\^`\x00-\x1F\x7F]*)?$/i.test(url)) {
-    return url
+  if (t === "number") {
+    if (!isFinite(val)) return ""
+    return String(val).slice(0, limit)
+  }
+
+  if (t === "boolean") {
+    return val ? "true" : "false"
+  }
+
+  // Pre-conversion bounding for Array types (e.g. xesam:artist can be an array of artists)
+  if (Array.isArray(val)) {
+    var maxElements = Math.min(val.length, 5)
+    var items = []
+    for (var i = 0; i < maxElements; i++) {
+      var item = val[i]
+      if (typeof item === "string") {
+        var cleanItem = item.slice(0, 40).replace(/[\x00-\x1F\x7F]/g, "").trim()
+        if (cleanItem) items.push(cleanItem)
+      } else if (typeof item === "number" && isFinite(item)) {
+        items.push(String(item).slice(0, 20))
+      }
+    }
+    return items.join(", ").slice(0, limit)
+  }
+
+  // Reject compound / unsupported object types without conversion
+  return ""
+}
+
+function sanitizeString(val, maxLen) {
+  return sanitizeValue(val, maxLen)
+}
+
+function isAllowedRemoteOrigin(host) {
+  if (!host || typeof host !== "string") return false
+  var cleanHost = host.toLowerCase().trim()
+  // Reject IP addresses, ports, credentials, localhost
+  if (cleanHost.indexOf(":") !== -1 || cleanHost.indexOf("@") !== -1 || /^[0-9.]+$/.test(cleanHost) || cleanHost === "localhost") {
+    return false
+  }
+  for (var i = 0; i < ALLOWED_REMOTE_ORIGINS.length; i++) {
+    var allowed = ALLOWED_REMOTE_ORIGINS[i]
+    if (cleanHost === allowed || cleanHost.endsWith("." + allowed)) {
+      return true
+    }
+  }
+  return false
+}
+
+// Recognized temporary MPRIS album art filename patterns in /tmp/ and /var/tmp/
+var ALLOWED_TEMP_FILENAME_REGEX = /^\.(org\.chromium\.Chromium|com\.google\.Chrome|org\.brave\.Browser|com\.microsoft\.Edge|org\.kde\.plasma\.browser_integration)\.[a-zA-Z0-9_-]+$/i
+var ALLOWED_TEMP_PREFIXED_REGEX = /^(spotify-cover|spotify|vlc-art|chromium-media|electron-mpris)-[a-zA-Z0-9._-]+\.(jpe?g|png|webp|bmp)$/i
+
+// Allowed user cache media directories & standard image extensions (strictly anchored to user home roots)
+var ALLOWED_USER_CACHE_ROOT_REGEX = /^\/(?:home\/[a-zA-Z0-9._-]+|root)\/\.cache\/(?:amberol|spotify|vlc|media-art|elisa|rhythmbox|thumbnails)\//i
+var ALLOWED_USER_ICON_ROOT_REGEX = /^\/(?:home\/[a-zA-Z0-9._-]+|root)\/\.local\/share\/(?:icons|thumbnails)\//i
+var ALLOWED_IMAGE_EXTENSIONS_REGEX = /\.(jpe?g|png|webp|svg|bmp|ico)$/i
+
+/**
+ * SYMLINK RESOLUTION LIMITATION & MITIGATION:
+ *
+ * Context: Pure QML/JS execution contexts lack a synchronous POSIX `realpath()` / `readlink -f` primitive.
+ * Spawning external child processes on every MPRIS signal change would block the main Wayland rendering thread
+ * and cause GUI frame drops.
+ *
+ * Mitigation Chosen: Narrowed Pattern Allowlist
+ * Rather than accepting arbitrary filenames inside /tmp/ or /var/tmp/, acceptance is strictly
+ * restricted to:
+ *   1. Precise filename conventions generated by real MPRIS clients for ephemeral album art:
+ *      - Chromium/Chrome/Brave/Edge/Plasma: /tmp/.\w+\.[a-zA-Z0-9_-]+ (e.g. .org.chromium.Chromium.C3Zzex)
+ *      - Spotify/VLC/Electron: /tmp/(spotify-cover|spotify|vlc-art|chromium-media|electron-mpris)-[a-zA-Z0-9._-]+\.(jpe?g|png|webp|bmp)
+ *   2. Specific known user media cache subdirectories anchored to user home with standard image extensions:
+ *      - ~/.cache/(amberol|spotify|vlc|media-art|elisa|rhythmbox|thumbnails)/
+ *      - ~/.local/share/(icons|thumbnails)/
+ *
+ * Arbitrary files in /tmp/ (e.g. /tmp/foo.jpg, /tmp/id_rsa, /tmp/passwd) are strictly rejected.
+ * Residual Risk: A malicious local process with write permissions to /tmp/ pre-creating a symlink matching
+ * the exact ephemeral MPRIS filename pattern of an active browser instance. Documented in SECURITY.md.
+ */
+function isAllowedLocalPath(rawPath) {
+  if (!rawPath || typeof rawPath !== "string") return false
+
+  // Decode URI components safely to catch encoded traversal attempts (%2e%2e, %2f, etc.)
+  var decoded = rawPath
+  try {
+    decoded = decodeURIComponent(rawPath)
+  } catch (e) {
+    return false
+  }
+
+  // Reject control characters, null bytes, backslashes, userinfo
+  if (/[\x00-\x1F\x7F\\@]/.test(decoded)) return false
+
+  // Canonicalize path segments (resolving . and ..)
+  var segments = decoded.split("/")
+  var stack = []
+  for (var i = 0; i < segments.length; i++) {
+    var seg = segments[i]
+    if (seg === "" || seg === ".") continue
+    if (seg === "..") {
+      if (stack.length > 0) stack.pop()
+      else return false // Attempted traversal above root
+    } else {
+      stack.push(seg)
+    }
+  }
+
+  var canonical = "/" + stack.join("/")
+  var filename = stack.length > 0 ? stack[stack.length - 1] : ""
+
+  // 1. Temporary media cache (/tmp/ and /var/tmp/)
+  // Must strictly match recognized MPRIS client temp filename patterns (preventing /tmp/foo.jpg symlink bypass)
+  var isDirectTmp = (canonical.indexOf("/tmp/") === 0 && stack.length === 2 && stack[0] === "tmp")
+  var isDirectVarTmp = (canonical.indexOf("/var/tmp/") === 0 && stack.length === 3 && stack[0] === "var" && stack[1] === "tmp")
+
+  if (isDirectTmp || isDirectVarTmp) {
+    if (ALLOWED_TEMP_FILENAME_REGEX.test(filename) || ALLOWED_TEMP_PREFIXED_REGEX.test(filename)) {
+      return true
+    }
+    return false
+  }
+
+  // 2. User cache / thumbnail directories
+  // Must be strictly anchored to /home/<user>/.cache/... or /root/.cache/... AND have standard image extensions
+  if (ALLOWED_USER_CACHE_ROOT_REGEX.test(canonical) || ALLOWED_USER_ICON_ROOT_REGEX.test(canonical)) {
+    // Explicit forbidden subpaths within user directories
+    if (/\/\.(ssh|gnupg|config|bashrc|zshrc|profile|local\/share\/keyrings|shadow|passwd)\b/i.test(canonical)) {
+      return false
+    }
+    if (ALLOWED_IMAGE_EXTENSIONS_REGEX.test(filename)) {
+      return true
+    }
+    return false
+  }
+
+  return false
+}
+
+// Bounded artwork URL validator with strict positive remote & local policies
+function sanitizeArtUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== "string" || rawUrl.length > 512) return ""
+  var url = sanitizeValue(rawUrl, 512)
+  if (!url || url.length < 8) return ""
+
+  // 1. Positive Local File Validation (file:// scheme)
+  if (/^file:\/\//i.test(url)) {
+    var rawPath = url.replace(/^file:\/\//i, "")
+    if (rawPath.indexOf("/") !== 0) rawPath = "/" + rawPath
+    if (isAllowedLocalPath(rawPath)) {
+      return url
+    }
+    return ""
+  }
+
+  // 2. Strict Remote Origin HTTPS Policy (HTTPS only, default port 443, whitelisted CDNs only)
+  var httpsMatch = url.match(/^https:\/\/([a-zA-Z0-9.-]+)(\/[^\s<>"'{}|\\^`\x00-\x1F\x7F]*)?$/i)
+  if (httpsMatch) {
+    var host = httpsMatch[1]
+    if (isAllowedRemoteOrigin(host)) {
+      return url
+    }
   }
 
   return ""
@@ -139,12 +311,12 @@ function detectSource(player, toplevels) {
   ]
 
   var metaObj = player.trackMetadata || player.metadata
-  if (metaObj && typeof metaObj === "object") {
+  if (metaObj && typeof metaObj === "object" && !Array.isArray(metaObj)) {
     try {
       for (var kIdx = 0; kIdx < ALLOWED_META_KEYS.length; kIdx++) {
         var key = ALLOWED_META_KEYS[kIdx]
         if (key in metaObj && metaObj[key] !== undefined && metaObj[key] !== null) {
-          var valStr = sanitizeString(metaObj[key], 80)
+          var valStr = sanitizeValue(metaObj[key], 80)
           if (valStr) rawMeta += " " + valStr
         }
       }

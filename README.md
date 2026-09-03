@@ -15,10 +15,12 @@ A sleek, interactive dynamic island bar-widget for Omarchy Quattro that expands 
 
 ## Security & Privacy Policy
 
-- **Untrusted Text Sanitization:** All user-facing text sinks (track title, artist, album, player identity, desktop entry, DBus names, and window titles) explicitly enforce `textFormat: Text.PlainText` and control-character stripping to prevent rich-text injection and layout distortion.
-- **Bounded Artwork Policy:** `trackArtUrl` is validated against strict allowed schemes (`file://` and `http://`/`https://`) with path-traversal and sensitive directory blocks (`/etc`, `/proc`, `/sys`, `~/.ssh`). Qt image decoding is strictly bounded with `sourceSize: 128x128` to prevent decompression-bomb and memory-exhaustion vectors.
-- **Remote Network Access Notice:** When an MPRIS player publishes remote HTTP/HTTPS cover art URLs (e.g. Spotify, YouTube), Quickshell's `Image` element fetches the thumbnail asynchronously. No background network telemetry, analytics, or external API calls are performed by this plugin.
-- **Resource Limits:** Scanned metadata dictionaries, open Wayland toplevels, and multi-player selectors are bounded to strict key whitelists and array slices to prevent unbounded memory retention.
+- **Untrusted Text Sanitization:** All user-facing text sinks (track title, artist, album, player identity, desktop entry, DBus names, and window titles) explicitly enforce `textFormat: Text.PlainText` and control-character stripping.
+- **Strict Remote Origin Allowlist:** Remote cover art is restricted exclusively to trusted HTTPS media CDN origins (Spotify, YouTube, Apple Music, SoundCloud, Bandcamp, Deezer, Tidal) over default port 443. Plaintext HTTP, custom ports, IP addresses, and arbitrary external domains are rejected.
+- **Positive Local Root Allowlist:** Local `file://` URLs are canonicalized (resolving encoded path traversals like `%2e%2e`) and restricted strictly to positive allowed roots (`/tmp/`, `/var/tmp/`, `~/.cache/`, and thumbnail directories). All sensitive system and user directories (`/etc`, `/proc`, `/sys`, `~/.ssh`, `~/.gnupg`) are strictly blocked.
+- **Pre-Conversion Type Bounds:** MPRIS metadata dictionary inspection rejects compound objects prior to string conversion and strictly bounds array items (max 5 items, 40 chars each) to prevent memory allocation attacks.
+- **Generation-Bound Artwork Loader:** Artwork requests are tagged with a monotonic generation counter with stale-result rejection and cancellation on rapid player/track switches. Image decoding is memory-bounded with `sourceSize: 128x128`.
+- **Resource Limits:** Collection scanning for players and Wayland toplevels is strictly capped with safe slices to prevent resource exhaustion.
 
 ## Requirements
 

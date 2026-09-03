@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Services.Mpris
 import Quickshell.Services.Pipewire
@@ -27,24 +28,72 @@ Panel {
   // Wayland toplevels for deep PWA detection
   readonly property var toplevels: ToplevelManager.toplevels ? ToplevelManager.toplevels.values : []
 
-  // Audio sink & volume properties
-  readonly property var audioSink: Pipewire.defaultAudioSink
-  readonly property real audioVolume: audioSink && audioSink.audio ? audioSink.audio.volume : 1.0
-  readonly property bool audioMuted: audioSink && audioSink.audio ? audioSink.audio.muted : false
+  // Pipewire Audio & Volume Resolution
+  readonly property var rawSink: Pipewire.defaultAudioSink
+  readonly property var pwNodes: Pipewire.nodes ? Pipewire.nodes.values : []
+  property string volumeSinkName: ""
+
+  readonly property var candidateSinks: {
+    var list = []
+    for (var i = 0; i < pwNodes.length; i++) {
+      var n = pwNodes[i]
+      if (n && n.isSink && !n.isStream) list.push(n)
+    }
+    if (rawSink && list.indexOf(rawSink) < 0) list.push(rawSink)
+    return list
+  }
+
+  PwObjectTracker { objects: root.candidateSinks }
+
+  readonly property var volumeSink: {
+    if (volumeSinkName === "" || !rawSink) return rawSink
+    if (volumeSinkName === String(rawSink.name)) return rawSink
+    for (var i = 0; i < pwNodes.length; i++) {
+      var n = pwNodes[i]
+      if (n && n.isSink && !n.isStream && String(n.name) === volumeSinkName && n.audio)
+        return n
+    }
+    return rawSink
+  }
+
+  Process {
+    id: volumeSinkProc
+    command: ["omarchy-audio-output-sink"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.volumeSinkName = String(text).trim()
+    }
+  }
+
+  function resolveVolumeSink() {
+    if (!volumeSinkProc.running) volumeSinkProc.running = true
+  }
+
+  onOpenedChanged: if (opened) resolveVolumeSink()
+  Component.onCompleted: resolveVolumeSink()
+
+  readonly property real audioVolume: volumeSink && volumeSink.audio ? volumeSink.audio.volume : 0.0
+  readonly property bool audioMuted: volumeSink && volumeSink.audio ? volumeSink.audio.muted : false
 
   function setAudioVolume(val) {
-    if (audioSink && audioSink.audio) {
-      var clamped = Math.max(0.0, Math.min(1.0, val))
-      audioSink.audio.volume = clamped
-      if (audioSink.audio.muted && clamped > 0) {
-        audioSink.audio.muted = false
+    var clamped = Math.max(0.0, Math.min(1.0, val))
+    if (volumeSink && volumeSink.audio) {
+      volumeSink.audio.volume = clamped
+      if (volumeSink.audio.muted && clamped > 0) {
+        volumeSink.audio.muted = false
       }
+    }
+    if (bar && bar.run) {
+      bar.run("wpctl set-volume @DEFAULT_AUDIO_SINK@ " + clamped.toFixed(2))
     }
   }
 
   function toggleAudioMute() {
-    if (audioSink && audioSink.audio) {
-      audioSink.audio.muted = !audioSink.audio.muted
+    if (volumeSink && volumeSink.audio) {
+      volumeSink.audio.muted = !volumeSink.audio.muted
+    }
+    if (bar && bar.run) {
+      bar.run("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle")
     }
   }
 
@@ -69,6 +118,35 @@ Panel {
   readonly property string album: activePlayer && activePlayer.trackAlbum ? IslandModel.sanitizeString(activePlayer.trackAlbum, 80) : ""
   readonly property string artUrl: IslandModel.sanitizeArtUrl(activePlayer ? (activePlayer.trackArtUrl || "") : "")
   readonly property string playerIdentity: sourceInfo.name
+
+  // Generation-bound artwork loader with cancellation and stale-result rejection
+  property int artworkGeneration: 0
+  property string activeArtworkSource: ""
+
+  function updateArtworkGeneration() {
+    artworkGeneration++
+    var currentGen = artworkGeneration
+    var raw = activePlayer ? (activePlayer.trackArtUrl || "") : ""
+    var validated = IslandModel.sanitizeArtUrl(raw)
+
+    // Drop previous image source immediately to cancel in-flight Qt decode
+    activeArtworkSource = ""
+
+    if (validated && root.opened && root.hasMedia) {
+      Qt.callLater(function() {
+        if (currentGen === root.artworkGeneration && root.opened && root.hasMedia) {
+          root.activeArtworkSource = validated
+        }
+      })
+    }
+  }
+
+  Connections {
+    target: root
+    function onActivePlayerChanged() { root.updateArtworkGeneration() }
+    function onArtUrlChanged() { root.updateArtworkGeneration() }
+    function onOpenedChanged() { root.updateArtworkGeneration() }
+  }
 
   readonly property color contentForeground: bar && bar.barForeground ? bar.barForeground : Color.foreground
   readonly property string contentFontFamily: bar && bar.fontFamily ? bar.fontFamily : Style.font.family
@@ -366,13 +444,18 @@ Panel {
             Image {
               id: artImage
               anchors.fill: parent
-              source: root.artUrl
+              source: root.activeArtworkSource
               fillMode: Image.PreserveAspectCrop
               asynchronous: true
               cache: true
               sourceSize.width: 128
               sourceSize.height: 128
-              visible: root.artUrl !== "" && status === Image.Ready
+              visible: root.activeArtworkSource !== "" && status === Image.Ready
+              onStatusChanged: {
+                if (status === Image.Error) {
+                  root.activeArtworkSource = ""
+                }
+              }
             }
 
             Text {
@@ -647,83 +730,19 @@ Panel {
             }
 
             // Smooth Interactive Volume Slider
-            Item {
-              id: sliderContainer
+            PanelSlider {
+              id: volSlider
+              bar: root.bar
               Layout.fillWidth: true
-              Layout.preferredHeight: Style.space(24)
-
-              readonly property real progress: Math.max(0.0, Math.min(1.0, root.audioMuted ? 0.0 : root.audioVolume))
-
-              // Background track
-              Rectangle {
-                id: volTrack
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.left: parent.left
-                anchors.right: parent.right
-                height: Style.space(5)
-                radius: height / 2
-                color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.12)
-              }
-
-              // Active fill bar
-              Rectangle {
-                id: volFill
-                anchors.verticalCenter: volTrack.verticalCenter
-                anchors.left: volTrack.left
-                height: volTrack.height
-                radius: volTrack.radius
-                color: root.audioMuted ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.3) : Color.accent
-                width: Math.max(0, volTrack.width * sliderContainer.progress)
-
-                Behavior on width {
-                  enabled: !sliderMouse.drag.active
-                  NumberAnimation { duration: 100; easing.type: Easing.OutQuad }
-                }
-              }
-
-              // Drag Knob
-              BorderSurface {
-                id: volKnob
-                width: Style.space(14)
-                height: Style.space(14)
-                radius: width / 2
-                color: root.audioMuted ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.5) : Color.accent
-                borderSpec: Border.flat(Color.popups.background, 2)
-                anchors.verticalCenter: volTrack.verticalCenter
-                x: Math.max(0, Math.min(volTrack.width - width, volTrack.width * sliderContainer.progress - width / 2))
-                scale: sliderMouse.containsMouse || sliderMouse.drag.active ? 1.25 : 1.0
-
-                Behavior on scale {
-                  NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
-                }
-              }
-
-              MouseArea {
-                id: sliderMouse
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-
-                function updateVolumeFromPos(posX) {
-                  var ratio = Math.max(0.0, Math.min(1.0, posX / width))
-                  root.setAudioVolume(ratio)
-                }
-
-                onPressed: function(mouse) {
-                  updateVolumeFromPos(mouse.x)
-                }
-
-                onPositionChanged: function(mouse) {
-                  if (pressed) {
-                    updateVolumeFromPos(mouse.x)
-                  }
-                }
-
-                onWheel: function(wheel) {
-                  var delta = wheel.angleDelta.y > 0 ? 0.05 : -0.05
-                  root.setAudioVolume(root.audioVolume + delta)
-                }
-              }
+              minimum: 0
+              maximum: 1
+              step: 0.05
+              value: root.audioVolume
+              opacity: root.audioMuted ? 0.5 : 1.0
+              fillColor: root.audioMuted ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.3) : Color.accent
+              knobColor: root.audioMuted ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.5) : Color.accent
+              onMoved: function(v) { root.setAudioVolume(v) }
+              onRightClicked: root.toggleAudioMute()
             }
 
             // Volume Percentage Label
