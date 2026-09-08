@@ -85,6 +85,10 @@ const dangerousUrls = [
   'file:///var/.cache/amberol/cover.jpg', // Unanchored outside user home
   'file:///tmp/@user/.org.chromium.Chromium.abc',
   'https://i.scdn.co@evil.com/fake.png',
+  'https://i.scdn.co/image/ab67616d0000b273b5c1a8d0524458cf680be635', // Remote external CDN omitted
+  'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg', // Remote external CDN omitted
+  'https://is1-ssl.mzstatic.com/image/thumb/Music/v4/cover.jpg', // Remote external CDN omitted
+  'http://example.com/cover.jpg',
   null,
   undefined,
   12345,
@@ -93,10 +97,10 @@ const dangerousUrls = [
 
 for (const badUrl of dangerousUrls) {
   const sanitized = sandbox.sanitizeArtUrl(badUrl);
-  assert(sanitized === '', `Blocked dangerous/untrusted artwork input: ${String(badUrl).slice(0, 50)}`);
+  assert(sanitized === '', `Blocked dangerous/untrusted/remote artwork input: ${String(badUrl).slice(0, 50)}`);
 }
 
-// Positive Allowed URLs
+// Positive Allowed Local URLs (file:// scheme only)
 assert(
   sandbox.sanitizeArtUrl('file:///tmp/.org.chromium.Chromium.C3Zzex') === 'file:///tmp/.org.chromium.Chromium.C3Zzex',
   'Allowed safe Chromium temp cover art URI (/tmp/.org.chromium...)'
@@ -114,17 +118,55 @@ assert(
   'Allowed safe user cache cover art URI (~/.cache/amberol/*.jpg)'
 );
 assert(
-  sandbox.sanitizeArtUrl('https://i.scdn.co/image/ab67616d0000b273b5c1a8d0524458cf680be635') === 'https://i.scdn.co/image/ab67616d0000b273b5c1a8d0524458cf680be635',
-  'Allowed safe HTTPS Spotify CDN cover art URI'
+  sandbox.sanitizeArtUrl('file:///home/user/.config/zen/firefox-mpris/13125_32.png') === 'file:///home/user/.config/zen/firefox-mpris/13125_32.png',
+  'Allowed safe Zen/Firefox browser MPRIS temp thumbnail (~/.config/zen/firefox-mpris/*.png)'
 );
 assert(
-  sandbox.sanitizeArtUrl('https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg') === 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
-  'Allowed safe HTTPS YouTube CDN cover art URI'
+  sandbox.sanitizeArtUrl('file:///home/user/.mozilla/firefox-mpris/13125_32.png') === 'file:///home/user/.mozilla/firefox-mpris/13125_32.png',
+  'Allowed safe Firefox browser MPRIS temp thumbnail (~/.mozilla/firefox-mpris/*.png)'
 );
 assert(
-  sandbox.sanitizeArtUrl('https://is1-ssl.mzstatic.com/image/thumb/Music/v4/cover.jpg') === 'https://is1-ssl.mzstatic.com/image/thumb/Music/v4/cover.jpg',
-  'Allowed safe HTTPS Apple Music CDN cover art URI'
+  sandbox.sanitizeArtUrl('file:///home/user/.config/librewolf/firefox-mpris/999_88.png') === 'file:///home/user/.config/librewolf/firefox-mpris/999_88.png',
+  'Allowed safe LibreWolf browser MPRIS temp thumbnail (~/.config/librewolf/firefox-mpris/*.png)'
 );
+assert(
+  sandbox.sanitizeArtUrl('file:///home/user/.config/floorp/firefox-mpris/777_66.webp') === 'file:///home/user/.config/floorp/firefox-mpris/777_66.webp',
+  'Allowed safe Floorp browser MPRIS temp thumbnail (~/.config/floorp/firefox-mpris/*.webp)'
+);
+assert(
+  sandbox.sanitizeArtUrl('file:///home/user/.config/waterfox/firefox-mpris/555_44.png') === 'file:///home/user/.config/waterfox/firefox-mpris/555_44.png',
+  'Allowed safe Waterfox browser MPRIS temp thumbnail (~/.config/waterfox/firefox-mpris/*.png)'
+);
+assert(
+  sandbox.sanitizeArtUrl('file:///tmp/.com.vivaldi.Vivaldi.AbCdEf') === 'file:///tmp/.com.vivaldi.Vivaldi.AbCdEf',
+  'Allowed safe Vivaldi temp thumbnail (/tmp/.com.vivaldi.Vivaldi...)'
+);
+assert(
+  sandbox.sanitizeArtUrl('file:///tmp/.com.opera.Opera.123456') === 'file:///tmp/.com.opera.Opera.123456',
+  'Allowed safe Opera temp thumbnail (/tmp/.com.opera.Opera...)'
+);
+assert(
+  sandbox.sanitizeArtUrl('file:///home/user/.var/app/app.zen_browser.zen/config/zen/firefox-mpris/123_45.png') === 'file:///home/user/.var/app/app.zen_browser.zen/config/zen/firefox-mpris/123_45.png',
+  'Allowed safe Flatpak Zen browser thumbnail'
+);
+
+// Symlink Canonical Resolution & Containment Verification
+const testTmpDir = '/tmp/test_art_symlink_suite_' + Date.now();
+fs.mkdirSync(testTmpDir, { recursive: true });
+const targetFile = testTmpDir + '/target.png';
+const symlinkFile = testTmpDir + '/symlink.png';
+fs.writeFileSync(targetFile, 'fake-png-data');
+fs.symlinkSync(targetFile, symlinkFile);
+
+try {
+  const resolvedTarget = fs.realpathSync(targetFile);
+  const resolvedSymlink = fs.realpathSync(symlinkFile);
+  // Symlink detection: resolved realpath must equal candidate path
+  assert(resolvedTarget === targetFile, 'Regular file canonical realpath matches candidate');
+  assert(resolvedSymlink !== symlinkFile, 'Symlink canonical realpath differs from candidate (symlink rejected)');
+} finally {
+  fs.rmSync(testTmpDir, { recursive: true, force: true });
+}
 
 // ----------------------------------------------------
 // 2. String Length Bounding & Control Character Stripping

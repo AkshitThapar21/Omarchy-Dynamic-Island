@@ -11,31 +11,28 @@ This document describes the threat model, security controls, and residual risk a
   - Non-printable ASCII control characters (`\x00`–`\x1F`, `\x7F`) are stripped from all incoming metadata strings.
   - String lengths are hard-capped prior to rendering.
 
-### 2. Remote Artwork Security
-- **Vulnerability:** Malicious URLs attempting SSRF, port scanning, decompression bombs, or arbitrary network exfiltration.
+### 2. Zero External Network Footprint (Zero-Trust)
+- **Vulnerability:** Malicious remote URLs attempting SSRF, port scanning, decompression bombs, slowloris/hung connections, arbitrary response bytes, unverified redirects, or image decoder exploits against the long-lived Wayland shell process.
 - **Mitigation:**
-  - `sanitizeArtUrl()` enforces a strict **Positive Remote Origin Allowlist** (HTTPS only, default port 443).
-  - Permitted CDN hosts are limited to verified media providers: Spotify (`i.scdn.co`, `*.spotifycdn.com`, `mosaic.scdn.co`), YouTube / Google (`i.ytimg.com`, `yt3.ggpht.com`, `lh3.googleusercontent.com`), Apple Music (`is*-ssl.mzstatic.com`), SoundCloud (`*.sndcdn.com`), Bandcamp (`*.bcbits.com`), Deezer (`*.dzcdn.net`), and Tidal (`resources.tidal.com`).
-  - Plaintext HTTP, custom ports, IP addresses, localhost, and arbitrary external domains are rejected.
-  - Image decoding is memory-bounded with `sourceSize: 128x128` to prevent texture decompression bombs.
+  - Remote external artwork fetching (`http://`, `https://`) has been **completely removed**. `sanitizeArtUrl()` rejects all non-`file://` schemes.
+  - The plugin performs **zero outbound network requests**, eliminating any possibility of remote payload delivery or data exfiltration.
+  - When playing remote streams (Spotify Web, YouTube, SoundCloud, etc.), the panel displays crisp, theme-native vector glyphs and brand accent colors with zero network overhead.
 
-### 3. Local File Scheme & Path Validation
-- **Vulnerability:** Malicious `file://` URIs attempting directory traversal (`%2e%2e`), sensitive system file exfiltration (`/etc/shadow`, `/proc/kcore`), or symlink dereferencing to private user files (`~/.ssh/id_rsa`).
+### 3. Local File Scheme & Physical Canonical Containment
+- **Vulnerability:** Malicious `file://` URIs attempting directory traversal (`%2e%2e`), sensitive system file exfiltration (`/etc/shadow`, `/proc/kcore`), or symlinks inside allowed directories pointing to sensitive private files (`/tmp/foo.jpg -> ~/.ssh/id_rsa`).
 - **Mitigation:**
-  - `isAllowedLocalPath()` performs URI percent-decoding and path canonicalization (resolving `.` and `..` segments).
-  - **Narrowed Pattern Allowlist:** Acceptance in `/tmp/` and `/var/tmp/` is restricted to known ephemeral MPRIS client filename conventions:
-    - Chromium/Chrome/Brave/Edge/Plasma: `/tmp/.\w+\.[a-zA-Z0-9_-]+` (e.g. `.org.chromium.Chromium.C3Zzex`)
-    - Spotify/VLC/Electron: `/tmp/(spotify-cover|spotify|vlc-art|chromium-media|electron-mpris)-[a-zA-Z0-9._-]+\.(jpe?g|png|webp|bmp)`
-    - Arbitrary filenames in `/tmp/` (e.g. `/tmp/foo.jpg`, `/tmp/id_rsa`) are rejected.
-  - User cache roots (`~/.cache/`, `~/.local/share/`) require verified media subdirectories (`amberol`, `spotify`, `vlc`, `media-art`, `elisa`, `rhythmbox`, `thumbnails`, `icons`) and strict image file extensions (`.jpg`, `.png`, `.webp`, `.svg`, `.bmp`, `.ico`).
-  - Access to sensitive user/system paths (`.ssh`, `.gnupg`, `.config`, `shadow`, `passwd`) is explicitly blocked.
+  - **Stage 1 (Syntax & Positive Root Filtering):** `isAllowedLocalPath()` in `IslandModel.js` decodes percent-encoded bytes (`decodeURIComponent`), normalizes path segments (resolving `.` and `..`), and ensures the path is anchored strictly beneath positive roots:
+    - User cache / icon roots: `/home/<user>/.cache/` and `/home/<user>/.local/share/` with verified image extensions (`.jpg`, `.png`, `.webp`, `.svg`, `.bmp`, `.ico`).
+    - Ephemeral MPRIS roots: Direct children of `/tmp/` and `/var/tmp/` matching real MPRIS client naming schemes (`.org.chromium.Chromium.*`, `spotify-cover-*`, `vlc-art-*`).
+    - Browser MPRIS ephemeral artwork: Strictly isolated thumbnail directories for Gecko and Chromium browsers (`~/.config/(zen|firefox|librewolf|floorp|waterfox|torbrowser|palemoon)/firefox-mpris/`, `~/.mozilla/firefox-mpris/`, and Flatpak profiles) matching `^[a-zA-Z0-9_.-]+\.(png|jpe?g|webp|bmp|gif|svg)$`. Any other `.config` files or sensitive paths remain strictly forbidden.
+  - **Stage 2 (Physical Inode Resolution & Symlink Rejection):** In `Panel.qml`, candidate local files are resolved through `realpath -e -P`.
+    - **Symlink Rejection:** The physical canonical path returned by `realpath -e -P` must match the input candidate path exactly (`resolved === candidatePath`). If any component of the path is a symlink, it is rejected immediately.
+    - **Containment Verification:** The physical resolved path is re-verified against `isAllowedLocalPath(resolved)`. If the target resides outside the allowed roots, it is dropped.
+    - **Memory Bounding:** Image decoding is capped with `sourceSize: 128x128`.
 
-### 4. Residual Risk Analysis (Symlinks in `/tmp/`)
-- **Accepted Residual Risk:** Because pure QML/JS execution lacks a synchronous `realpath()` / `readlink -f` primitive without blocking the Wayland GUI thread on every MPRIS signal, a local process with write permissions to `/tmp/` could theoretically create a symlink that matches the exact ephemeral MPRIS filename pattern of an active browser instance (e.g. `/tmp/.org.chromium.Chromium.XYZ123 -> /home/user/.ssh/id_rsa`).
-- **Why it is accepted:** 
-  1. An attacker capable of predicting or creating race-condition symlinks matching dynamic ephemeral browser PIDs/handles already possesses local code execution under the user's UID.
-  2. QML's `Image` element only attempts to decode images and will fail silently (`status: Image.Error`) when encountering non-image data (such as SSH private keys, text files, or binaries), dropping the source immediately without data leakage.
+### 4. Generation-Bound Lifecycle & Cancellation
+- Monotonic generation counter (`artworkGeneration`) in `Panel.qml` tracks track/player changes.
+- Rapid skipping immediately blanks `activeArtworkSource = ""` to abort in-flight Qt image decodes, cancels any pending `localArtResolver` process, and drops stale results if the generation changed during resolution.
 
 ### 5. Memory & Denial-of-Service Defense
 - Metadata inspection type-checks before conversion, slicing native string buffers first and capping array elements (max 5 items, 40 chars each) to prevent materialization of multi-megabyte D-Bus variants.
-- Monotonic generation counter (`artworkGeneration`) cancels in-flight decodes and drops stale responses during rapid track skipping.

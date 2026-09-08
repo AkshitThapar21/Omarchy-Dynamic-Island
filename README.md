@@ -16,10 +16,10 @@ A sleek, interactive dynamic island bar-widget for Omarchy Quattro that expands 
 ## Security & Privacy Policy
 
 - **Untrusted Text Sanitization:** All user-facing text sinks (track title, artist, album, player identity, desktop entry, DBus names, and window titles) explicitly enforce `textFormat: Text.PlainText` and control-character stripping.
-- **Strict Remote Origin Allowlist:** Remote cover art is restricted exclusively to trusted HTTPS media CDN origins (Spotify, YouTube, Apple Music, SoundCloud, Bandcamp, Deezer, Tidal) over default port 443. Plaintext HTTP, custom ports, IP addresses, and arbitrary external domains are rejected.
-- **Positive Local Root Allowlist:** Local `file://` URLs are canonicalized (resolving encoded path traversals like `%2e%2e`) and restricted strictly to positive allowed roots (`/tmp/`, `/var/tmp/`, `~/.cache/`, and thumbnail directories). All sensitive system and user directories (`/etc`, `/proc`, `/sys`, `~/.ssh`, `~/.gnupg`) are strictly blocked.
+- **Zero External Network Artwork (Zero-Trust):** All remote HTTP/HTTPS image fetching has been completely removed to eliminate external attack surfaces, response-byte overruns, unverified redirects, telemetry, and remote image decoder exploits. Remote media tracks seamlessly render crisp, theme-native vector brand glyphs and colors.
+- **Canonical Local Containment & Symlink Rejection:** Local `file://` URIs undergo a two-stage containment pipeline: syntax and path normalization in `IslandModel.js`, followed by physical inode resolution via `realpath -e -P` in `Panel.qml`. Any symlinks (`resolved !== candidate`) or targets outside verified positive roots (`~/.cache/`, `~/.local/share/`, `/tmp/`, `/var/tmp/`) are strictly rejected.
 - **Pre-Conversion Type Bounds:** MPRIS metadata dictionary inspection rejects compound objects prior to string conversion and strictly bounds array items (max 5 items, 40 chars each) to prevent memory allocation attacks.
-- **Generation-Bound Artwork Loader:** Artwork requests are tagged with a monotonic generation counter with stale-result rejection and cancellation on rapid player/track switches. Image decoding is memory-bounded with `sourceSize: 128x128`.
+- **Generation-Bound Artwork Loader:** Artwork requests are tagged with a monotonic `artworkGeneration` counter with cancellation and stale-result rejection on rapid player/track switches. Image decoding is memory-bounded with `sourceSize: 128x128`.
 - **Resource Limits:** Collection scanning for players and Wayland toplevels is strictly capped with safe slices to prevent resource exhaustion.
 
 ## Requirements

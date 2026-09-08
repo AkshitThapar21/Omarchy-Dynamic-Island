@@ -119,9 +119,31 @@ Panel {
   readonly property string artUrl: IslandModel.sanitizeArtUrl(activePlayer ? (activePlayer.trackArtUrl || "") : "")
   readonly property string playerIdentity: sourceInfo.name
 
-  // Generation-bound artwork loader with cancellation and stale-result rejection
+  // Generation-bound canonical local artwork loader with symlink rejection and stale-result cancellation
   property int artworkGeneration: 0
   property string activeArtworkSource: ""
+
+  Process {
+    id: localArtResolver
+    property int trackedGeneration: 0
+    property string candidatePath: ""
+    command: []
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var resolved = String(text).trim()
+        if (localArtResolver.trackedGeneration === root.artworkGeneration && root.hasMedia) {
+          // Reject symlinks: the physical canonical path must match the candidate path exactly.
+          // In addition, the resolved physical path must be strictly contained within positive allowed roots.
+          if (resolved && resolved === localArtResolver.candidatePath && IslandModel.isAllowedLocalPath(resolved)) {
+            root.activeArtworkSource = "file://" + resolved
+          } else {
+            root.activeArtworkSource = ""
+          }
+        }
+      }
+    }
+  }
 
   function updateArtworkGeneration() {
     artworkGeneration++
@@ -132,12 +154,21 @@ Panel {
     // Drop previous image source immediately to cancel in-flight Qt decode
     activeArtworkSource = ""
 
-    if (validated && root.opened && root.hasMedia) {
-      Qt.callLater(function() {
-        if (currentGen === root.artworkGeneration && root.opened && root.hasMedia) {
-          root.activeArtworkSource = validated
-        }
-      })
+    if (localArtResolver.running) {
+      localArtResolver.running = false
+    }
+
+    if (validated && root.hasMedia) {
+      var localPath = ""
+      try {
+        localPath = decodeURIComponent(validated.replace(/^file:\/\//i, ""))
+      } catch (e) {
+        localPath = validated.replace(/^file:\/\//i, "")
+      }
+      localArtResolver.trackedGeneration = currentGen
+      localArtResolver.candidatePath = localPath
+      localArtResolver.command = ["realpath", "-e", "-P", "--", localPath]
+      localArtResolver.running = true
     }
   }
 
