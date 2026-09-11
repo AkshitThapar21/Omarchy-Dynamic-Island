@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
-import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Services.Mpris
 import Quickshell.Services.Pipewire
@@ -28,49 +27,10 @@ Panel {
   // Wayland toplevels for deep PWA detection
   readonly property var toplevels: ToplevelManager.toplevels ? ToplevelManager.toplevels.values : []
 
-  // Pipewire Audio & Volume Resolution
-  readonly property var rawSink: Pipewire.defaultAudioSink
-  readonly property var pwNodes: Pipewire.nodes ? Pipewire.nodes.values : []
-  property string volumeSinkName: ""
-
-  readonly property var candidateSinks: {
-    var list = []
-    for (var i = 0; i < pwNodes.length; i++) {
-      var n = pwNodes[i]
-      if (n && n.isSink && !n.isStream) list.push(n)
-    }
-    if (rawSink && list.indexOf(rawSink) < 0) list.push(rawSink)
-    return list
-  }
-
-  PwObjectTracker { objects: root.candidateSinks }
-
-  readonly property var volumeSink: {
-    if (volumeSinkName === "" || !rawSink) return rawSink
-    if (volumeSinkName === String(rawSink.name)) return rawSink
-    for (var i = 0; i < pwNodes.length; i++) {
-      var n = pwNodes[i]
-      if (n && n.isSink && !n.isStream && String(n.name) === volumeSinkName && n.audio)
-        return n
-    }
-    return rawSink
-  }
-
-  Process {
-    id: volumeSinkProc
-    command: ["omarchy-audio-output-sink"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.volumeSinkName = String(text).trim()
-    }
-  }
-
-  function resolveVolumeSink() {
-    if (!volumeSinkProc.running) volumeSinkProc.running = true
-  }
-
-  onOpenedChanged: if (opened) resolveVolumeSink()
-  Component.onCompleted: resolveVolumeSink()
+  // PipeWire's typed API is the only audio-control path. Do not spawn helpers
+  // or shell commands from this plugin.
+  readonly property var volumeSink: Pipewire.defaultAudioSink
+  PwObjectTracker { objects: root.volumeSink ? [root.volumeSink] : [] }
 
   readonly property real audioVolume: volumeSink && volumeSink.audio ? volumeSink.audio.volume : 0.0
   readonly property bool audioMuted: volumeSink && volumeSink.audio ? volumeSink.audio.muted : false
@@ -83,17 +43,11 @@ Panel {
         volumeSink.audio.muted = false
       }
     }
-    if (bar && bar.run) {
-      bar.run("wpctl set-volume @DEFAULT_AUDIO_SINK@ " + clamped.toFixed(2))
-    }
   }
 
   function toggleAudioMute() {
     if (volumeSink && volumeSink.audio) {
       volumeSink.audio.muted = !volumeSink.audio.muted
-    }
-    if (bar && bar.run) {
-      bar.run("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle")
     }
   }
 
@@ -116,68 +70,7 @@ Panel {
   readonly property string title: hasMedia ? cleanedTrack.title : "No Media Playing"
   readonly property string artist: hasMedia ? cleanedTrack.artist : ""
   readonly property string album: activePlayer && activePlayer.trackAlbum ? IslandModel.sanitizeString(activePlayer.trackAlbum, 80) : ""
-  readonly property string artUrl: IslandModel.sanitizeArtUrl(activePlayer ? (activePlayer.trackArtUrl || "") : "")
   readonly property string playerIdentity: sourceInfo.name
-
-  // Generation-bound canonical local artwork loader with symlink rejection and stale-result cancellation
-  property int artworkGeneration: 0
-  property string activeArtworkSource: ""
-
-  Process {
-    id: localArtResolver
-    property int trackedGeneration: 0
-    property string candidatePath: ""
-    command: []
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var resolved = String(text).trim()
-        if (localArtResolver.trackedGeneration === root.artworkGeneration && root.hasMedia) {
-          // Reject symlinks: the physical canonical path must match the candidate path exactly.
-          // In addition, the resolved physical path must be strictly contained within positive allowed roots.
-          if (resolved && resolved === localArtResolver.candidatePath && IslandModel.isAllowedLocalPath(resolved)) {
-            root.activeArtworkSource = "file://" + resolved
-          } else {
-            root.activeArtworkSource = ""
-          }
-        }
-      }
-    }
-  }
-
-  function updateArtworkGeneration() {
-    artworkGeneration++
-    var currentGen = artworkGeneration
-    var raw = activePlayer ? (activePlayer.trackArtUrl || "") : ""
-    var validated = IslandModel.sanitizeArtUrl(raw)
-
-    // Drop previous image source immediately to cancel in-flight Qt decode
-    activeArtworkSource = ""
-
-    if (localArtResolver.running) {
-      localArtResolver.running = false
-    }
-
-    if (validated && root.hasMedia) {
-      var localPath = ""
-      try {
-        localPath = decodeURIComponent(validated.replace(/^file:\/\//i, ""))
-      } catch (e) {
-        localPath = validated.replace(/^file:\/\//i, "")
-      }
-      localArtResolver.trackedGeneration = currentGen
-      localArtResolver.candidatePath = localPath
-      localArtResolver.command = ["realpath", "-e", "-P", "--", localPath]
-      localArtResolver.running = true
-    }
-  }
-
-  Connections {
-    target: root
-    function onActivePlayerChanged() { root.updateArtworkGeneration() }
-    function onArtUrlChanged() { root.updateArtworkGeneration() }
-    function onOpenedChanged() { root.updateArtworkGeneration() }
-  }
 
   readonly property color contentForeground: bar && bar.barForeground ? bar.barForeground : Color.foreground
   readonly property string contentFontFamily: bar && bar.fontFamily ? bar.fontFamily : Style.font.family
@@ -472,26 +365,8 @@ Panel {
               }
             }
 
-            Image {
-              id: artImage
-              anchors.fill: parent
-              source: root.activeArtworkSource
-              fillMode: Image.PreserveAspectCrop
-              asynchronous: true
-              cache: true
-              sourceSize.width: 128
-              sourceSize.height: 128
-              visible: root.activeArtworkSource !== "" && status === Image.Ready
-              onStatusChanged: {
-                if (status === Image.Error) {
-                  root.activeArtworkSource = ""
-                }
-              }
-            }
-
             Text {
               anchors.centerIn: parent
-              visible: !artImage.visible
               text: root.sourceInfo.icon
               textFormat: Text.PlainText
               color: root.hasMedia ? Color.accent : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.3)

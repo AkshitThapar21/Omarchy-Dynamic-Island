@@ -2,6 +2,13 @@
 
 All notable changes to the **Dynamic Island** plugin (`akshit.island`) are documented in this file.
 
+## [1.1.1] - Security remediation
+
+### Changed
+- **Removed all MPRIS artwork loading:** The plugin no longer reads `trackArtUrl`, resolves filesystem paths, or assigns untrusted URLs or paths to QML `Image.source`.
+- **Removed child-process execution:** The previous `realpath`, `omarchy-audio-output-sink`, and `wpctl` routes are gone. Volume controls use Quickshell's typed PipeWire API.
+- **Added regression tests:** The adversarial suite now asserts that artwork loading and process execution cannot be reintroduced accidentally.
+
 ## [1.1.0] - Production Hardening & Marketplace Release
 
 ### Added

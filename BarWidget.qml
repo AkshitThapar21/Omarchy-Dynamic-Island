@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Wayland
-import Quickshell.Io
 import Quickshell.Services.Mpris
 import qs.Commons
 import qs.Ui
@@ -43,7 +42,6 @@ BarWidget {
   readonly property var cleanedTrack: IslandModel.cleanTrackInfo(activePlayer ? activePlayer.trackTitle : "", activePlayer ? activePlayer.trackArtist : "")
   readonly property string title: cleanedTrack.title
   readonly property string artist: cleanedTrack.artist
-  readonly property string artUrl: activePlayer ? (activePlayer.trackArtUrl || "") : ""
 
   // Active event aggregator resolution
   readonly property var activeEvent: IslandModel.computeActiveEvent(activePlayer, [], toplevels)

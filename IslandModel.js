@@ -51,118 +51,6 @@ function sanitizeString(val, maxLen) {
   return sanitizeValue(val, maxLen)
 }
 
-// Recognized temporary MPRIS album art filename patterns in /tmp/ and /var/tmp/
-// Recognized temporary MPRIS album art filename patterns in /tmp/ and /var/tmp/
-var ALLOWED_TEMP_FILENAME_REGEX = /^\.(org\.chromium\.Chromium|com\.google\.Chrome|com\.google\.ChromeDev|com\.google\.ChromeBeta|org\.brave\.Browser|com\.microsoft\.Edge|com\.microsoft\.EdgeDev|com\.vivaldi\.Vivaldi|com\.opera\.Opera|org\.kde\.plasma\.browser_integration)\.[a-zA-Z0-9_-]+$/i
-var ALLOWED_TEMP_PREFIXED_REGEX = /^(spotify-cover|spotify|vlc-art|chromium-media|electron-mpris|opera|vivaldi)-[a-zA-Z0-9._-]+\.(jpe?g|png|webp|bmp)$/i
-
-// Allowed user cache media directories & standard image extensions (strictly anchored to user home roots)
-var ALLOWED_USER_CACHE_ROOT_REGEX = /^\/(?:home\/[a-zA-Z0-9._-]+|root)\/\.cache\/(?:amberol|spotify|vlc|media-art|elisa|rhythmbox|thumbnails|chromium|google-chrome|BraveSoftware|microsoft-edge|vivaldi|opera|zen|firefox)\//i
-var ALLOWED_USER_ICON_ROOT_REGEX = /^\/(?:home\/[a-zA-Z0-9._-]+|root)\/\.local\/share\/(?:icons|thumbnails)\//i
-
-// All major Gecko/Firefox family browsers (Native, Arch, Flatpak: Zen, Firefox, LibreWolf, Floorp, Waterfox, Tor, PaleMoon)
-var ALLOWED_BROWSER_MPRIS_ROOT_REGEX = /^\/(?:home\/[a-zA-Z0-9._-]+|root)\/(?:(?:\.config\/(?:zen|firefox|librewolf|floorp|waterfox|torbrowser|palemoon)|\.mozilla|\.librewolf|\.floorp|\.waterfox|\.var\/app\/(?:org\.mozilla\.firefox|app\.zen_browser\.zen|io\.gitlab\.librewolf-community|one\.ablaze\.floorp)\/(?:config\/(?:zen|firefox|librewolf|floorp)|\.mozilla))\/firefox-mpris)\//i
-var ALLOWED_BROWSER_MPRIS_FILENAME_REGEX = /^\d+_\d+\.(jpe?g|png|webp)$/i
-var ALLOWED_IMAGE_EXTENSIONS_REGEX = /\.(jpe?g|png|webp|svg|bmp|ico)$/i
-
-/**
- * SYMLINK RESOLUTION & CANONICAL CONTAINMENT:
- *
- * Local file URIs are filtered through positive media roots.
- * Ephemeral browser MPRIS caches (Firefox, Zen, LibreWolf) and client temp artwork
- * are matched against exact filename formats.
- * Physical symlink dereferencing is handled in Panel.qml via realpath -e -P to ensure
- * zero symlink bypasses.
- */
-function isAllowedLocalPath(rawPath) {
-  if (!rawPath || typeof rawPath !== "string") return false
-
-  // Decode URI components safely to catch encoded traversal attempts (%2e%2e, %2f, etc.)
-  var decoded = rawPath
-  try {
-    decoded = decodeURIComponent(rawPath)
-  } catch (e) {
-    return false
-  }
-
-  // Reject control characters, null bytes, backslashes, userinfo
-  if (/[\x00-\x1F\x7F\\@]/.test(decoded)) return false
-
-  // Canonicalize path segments (resolving . and ..)
-  var segments = decoded.split("/")
-  var stack = []
-  for (var i = 0; i < segments.length; i++) {
-    var seg = segments[i]
-    if (seg === "" || seg === ".") continue
-    if (seg === "..") {
-      if (stack.length > 0) stack.pop()
-      else return false // Attempted traversal above root
-    } else {
-      stack.push(seg)
-    }
-  }
-
-  var canonical = "/" + stack.join("/")
-  var filename = stack.length > 0 ? stack[stack.length - 1] : ""
-
-  // 1. Temporary media cache (/tmp/ and /var/tmp/)
-  // Must strictly match recognized MPRIS client temp filename patterns (preventing /tmp/foo.jpg symlink bypass)
-  var isDirectTmp = (canonical.indexOf("/tmp/") === 0 && stack.length === 2 && stack[0] === "tmp")
-  var isDirectVarTmp = (canonical.indexOf("/var/tmp/") === 0 && stack.length === 3 && stack[0] === "var" && stack[1] === "tmp")
-
-  if (isDirectTmp || isDirectVarTmp) {
-    if (ALLOWED_TEMP_FILENAME_REGEX.test(filename) || ALLOWED_TEMP_PREFIXED_REGEX.test(filename)) {
-      return true
-    }
-    return false
-  }
-
-  // 2. Browser MPRIS ephemeral artwork (Firefox / Zen / LibreWolf / Floorp)
-  if (ALLOWED_BROWSER_MPRIS_ROOT_REGEX.test(canonical)) {
-    if (ALLOWED_BROWSER_MPRIS_FILENAME_REGEX.test(filename)) {
-      return true
-    }
-    return false
-  }
-
-  // 3. User cache / thumbnail directories
-  // Must be strictly anchored to /home/<user>/.cache/... or /root/.cache/... AND have standard image extensions
-  if (ALLOWED_USER_CACHE_ROOT_REGEX.test(canonical) || ALLOWED_USER_ICON_ROOT_REGEX.test(canonical)) {
-    // Explicit forbidden subpaths within user directories
-    if (/\/\.(ssh|gnupg|config|bashrc|zshrc|profile|local\/share\/keyrings|shadow|passwd)\b/i.test(canonical)) {
-      return false
-    }
-    if (ALLOWED_IMAGE_EXTENSIONS_REGEX.test(filename)) {
-      return true
-    }
-    return false
-  }
-
-  return false
-}
-
-// Artwork URL validator: Strictly local files only (zero external network fetching)
-// External HTTP/HTTPS URLs are completely omitted to prevent arbitrary remote network fetching,
-// response-byte attacks, unverified redirects, tracking, and remote image decoder exploits.
-function sanitizeArtUrl(rawUrl) {
-  if (!rawUrl || typeof rawUrl !== "string" || rawUrl.length > 512) return ""
-  var url = sanitizeValue(rawUrl, 512)
-  if (!url || url.length < 8) return ""
-
-  // Positive Local File Validation (file:// scheme only)
-  if (/^file:\/\//i.test(url)) {
-    var rawPath = url.replace(/^file:\/\//i, "")
-    if (rawPath.indexOf("/") !== 0) rawPath = "/" + rawPath
-    if (isAllowedLocalPath(rawPath)) {
-      return url
-    }
-    return ""
-  }
-
-  // All external / remote URLs (http://, https://, data:, qrc:) return empty string
-  return ""
-}
-
 function playerKey(player) {
   if (!player) return ""
   var raw = player.dbusName || player.desktopEntry || player.identity || ""
@@ -246,7 +134,6 @@ function detectSource(player, toplevels) {
   var title = sanitizeString(player.trackTitle || "", 128)
   var artist = sanitizeString(player.trackArtist || "", 128)
   var album = sanitizeString(player.trackAlbum || "", 128)
-  var artUrl = sanitizeString(player.trackArtUrl || "", 256)
   var url = sanitizeString(player.trackUrl || "", 256)
   var identity = sanitizeString(player.identity || "", 64)
   var desktopEntry = sanitizeString(player.desktopEntry || "", 64)
@@ -273,7 +160,7 @@ function detectSource(player, toplevels) {
   }
 
   // Concatenated metadata search string from the ACTIVE playing track
-  var allText = (title + " " + artist + " " + album + " " + artUrl + " " + url + " " + rawMeta + " " + identity + " " + desktopEntry + " " + dbusName).slice(0, MAX_ALL_TEXT_LEN).toLowerCase()
+  var allText = (title + " " + artist + " " + album + " " + url + " " + rawMeta + " " + identity + " " + desktopEntry + " " + dbusName).slice(0, MAX_ALL_TEXT_LEN).toLowerCase()
 
   // 1. YouTube Music
   if (allText.indexOf("music.youtube") !== -1 || allText.indexOf("youtube music") !== -1) {
@@ -281,22 +168,22 @@ function detectSource(player, toplevels) {
   }
 
   // 2. YouTube
-  if (allText.indexOf("youtube.com") !== -1 || allText.indexOf("youtu.be") !== -1 || artUrl.indexOf("ytimg.com") !== -1 || allText.indexOf("googlevideo.com") !== -1 || artUrl.indexOf("ggpht.com") !== -1 || allText.indexOf(" - youtube") !== -1) {
+  if (allText.indexOf("youtube.com") !== -1 || allText.indexOf("youtu.be") !== -1 || allText.indexOf("googlevideo.com") !== -1 || allText.indexOf(" - youtube") !== -1) {
     return { name: "YouTube", icon: "󰗃", brand: "youtube" }
   }
 
   // 3. Spotify
-  if (allText.indexOf("spotify") !== -1 || artUrl.indexOf("scdn.co") !== -1 || allText.indexOf("spotify.com") !== -1 || dbusName.indexOf("spotify") !== -1) {
+  if (allText.indexOf("spotify") !== -1 || allText.indexOf("spotify.com") !== -1 || dbusName.indexOf("spotify") !== -1) {
     return { name: "Spotify", icon: "󰓇", brand: "spotify" }
   }
 
   // 4. Apple Music
-  if (allText.indexOf("apple music") !== -1 || allText.indexOf("music.apple.com") !== -1 || artUrl.indexOf("mzstatic.com") !== -1 || allText.indexOf("itunes") !== -1 || dbusName.indexOf("cider") !== -1) {
+  if (allText.indexOf("apple music") !== -1 || allText.indexOf("music.apple.com") !== -1 || allText.indexOf("itunes") !== -1 || dbusName.indexOf("cider") !== -1) {
     return { name: "Apple Music", icon: "󰎆", brand: "applemusic" }
   }
 
   // 5. SoundCloud
-  if (allText.indexOf("soundcloud") !== -1 || artUrl.indexOf("sndcdn.com") !== -1) {
+  if (allText.indexOf("soundcloud") !== -1) {
     return { name: "SoundCloud", icon: "󰓇", brand: "soundcloud" }
   }
 
@@ -306,7 +193,7 @@ function detectSource(player, toplevels) {
   }
 
   // 7. Bandcamp
-  if (allText.indexOf("bandcamp") !== -1 || artUrl.indexOf("bcbits.com") !== -1) {
+  if (allText.indexOf("bandcamp") !== -1) {
     return { name: "Bandcamp", icon: "󰓇", brand: "bandcamp" }
   }
 

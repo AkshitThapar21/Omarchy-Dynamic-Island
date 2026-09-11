@@ -2,9 +2,10 @@
   "schemaVersion": 1,
   "id": "akshit.island",
   "name": "Dynamic Island",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "author": "Akshit",
-  "description": "An interactive dynamic island bar pill that expands on hover to show now playing tracks, media controls, and quick system events.",
+  "license": "MIT",
+  "description": "An interactive dynamic island bar pill that expands on hover to show now-playing tracks and media controls.",
   "kinds": [
     "bar-widget"
   ],
