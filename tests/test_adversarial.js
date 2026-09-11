@@ -65,16 +65,63 @@ assert(sandbox.sanitizeString(hugeString, 120).length <= 120,
   'Caps a 50k-character metadata string before rendering');
 assert(sandbox.sanitizeString('Track\x00Name\x07With\x1bEscapes\x7f', 50) === 'TrackNameWithEscapes',
   'Strips non-printable control characters');
+assert(sandbox.sanitizeString('<img src=x onerror=1>', 80).indexOf('\x00') === -1,
+  'Keeps rich-text-looking metadata as inert plain text');
+assert(sandbox.sanitizeString(Infinity, 80) === '' && sandbox.sanitizeString(NaN, 80) === '',
+  'Rejects non-finite numeric metadata');
+assert(sandbox.sanitizeString(true, 80) === 'true' && sandbox.sanitizeString(false, 80) === 'false',
+  'Normalizes boolean metadata safely');
 const giantArray = new Array(100000).fill('SpamArtistName');
 assert(sandbox.sanitizeString(giantArray, 80).length <= 80,
   'Bounds large metadata arrays before joining');
+assert(sandbox.sanitizeString(['Artist A', 'Artist B', 'Artist C', 'Artist D', 'Artist E', 'Artist F'], 200)
+    .split(', ').length === 5,
+  'Caps array metadata to five items');
+assert(sandbox.sanitizeString(['A'.repeat(100)], 80).length <= 40,
+  'Caps each array item before joining');
 assert(sandbox.sanitizeString({ deep: { bomb: 'X'.repeat(5000) } }, 80) === '',
   'Rejects compound metadata objects without conversion');
 
-console.log('\n4. Metadata, player, and toplevel collection bounds:');
-const cleaned = sandbox.cleanTrackInfo('Dua Lipa - Levitating', 'Dua Lipa');
-assert(cleaned.title === 'Levitating' && cleaned.artist === 'Dua Lipa',
-  'Prevents duplicate artist display');
+console.log('\n4. Track metadata cleaning:');
+const cleaned1 = sandbox.cleanTrackInfo('Never Gonna Give You Up - YouTube Music', 'Rick Astley');
+assert(cleaned1.title === 'Never Gonna Give You Up', 'Strips YouTube Music suffix');
+const cleaned2 = sandbox.cleanTrackInfo('Drake - Hotline Bling', '');
+assert(cleaned2.title === 'Hotline Bling' && cleaned2.artist === 'Drake', 'Splits Artist - Title when artist is absent');
+const cleaned3 = sandbox.cleanTrackInfo('Dua Lipa - Levitating', 'Dua Lipa');
+assert(cleaned3.title === 'Levitating' && cleaned3.artist === 'Dua Lipa', 'Prevents duplicate artist display');
+const cleaned4 = sandbox.cleanTrackInfo('Only Title', 'Only Title');
+assert(cleaned4.title === 'Only Title' && cleaned4.artist === '', 'Clears identical artist and title');
+const cleaned5 = sandbox.cleanTrackInfo('<style>body{display:none}</style>Song Name', '<img src=x onerror=1>');
+assert(cleaned5.title.length <= 120 && cleaned5.artist.length <= 80, 'Bounds rich-text-looking track metadata');
+
+console.log('\n5. Metadata dictionary and source detection bounds:');
+const bombMetadata = {
+  'xesam:title': 'Legitimate Song',
+  'xesam:artist': giantArray,
+  'xesam:album': { deep: { deeper: { bomb: 'X'.repeat(5000) } } }
+};
+for (let i = 0; i < 5000; i++) bombMetadata[`custom_junk_key_${i}`] = 'X'.repeat(5000);
+const bombPlayer = {
+  dbusName: 'org.mpris.MediaPlayer2.spotify',
+  identity: 'Spotify',
+  trackTitle: 'Legitimate Song',
+  trackArtist: 'Legitimate Artist',
+  trackMetadata: bombMetadata
+};
+const startTime = Date.now();
+const bombResult = sandbox.detectSource(bombPlayer, []);
+assert(bombResult.name === 'Spotify' && Date.now() - startTime < 200,
+  'Handles a 5,000-key metadata dictionary within a bounded time');
+assert(sandbox.detectSource({ identity: 'Spotify', trackTitle: 'Song' }, []).brand === 'spotify',
+  'Detects Spotify from sanitized identity');
+assert(sandbox.detectSource({ identity: 'VLC media player', trackTitle: 'Song' }, []).brand === 'vlc',
+  'Detects VLC from sanitized identity');
+assert(sandbox.detectSource({ identity: 'Apple Music', trackTitle: 'Song' }, []).brand === 'applemusic',
+  'Detects Apple Music from sanitized identity');
+assert(sandbox.detectSource({ identity: 'YouTube Music', trackTitle: 'Song' }, []).brand === 'ytmusic',
+  'Detects YouTube Music from sanitized identity');
+
+console.log('\n6. Metadata, player, and toplevel collection bounds:');
 const fakeToplevels = Array.from({ length: 500 }, (_, i) => ({ appId: `chrome-app-${i}`, title: `Window ${i}` }));
 const pwaSource = sandbox.detectSource({ dbusName: 'org.mpris.MediaPlayer2.chromium', identity: 'Chromium' }, fakeToplevels);
 assert(typeof pwaSource.name === 'string' && pwaSource.name.length <= 30,
@@ -84,12 +131,29 @@ fakePlayers[2].isPlaying = true;
 fakePlayers[2].trackTitle = 'Active Track';
 assert(sandbox.resolveActivePlayer(fakePlayers, '').dbusName === 'org.mpris.MediaPlayer2.app_2',
   'Resolves an active player within the bounded player list');
+const preferred = sandbox.resolveActivePlayer(fakePlayers, 'org.mpris.MediaPlayer2.app_5');
+assert(preferred && preferred.dbusName === 'org.mpris.MediaPlayer2.app_5',
+  'Honors a preferred player key within the inspection bound');
+const paused = fakePlayers[5];
+paused.trackTitle = 'Paused Track';
+paused.canPlay = true;
+assert(sandbox.resolveActivePlayer(fakePlayers, '').dbusName === 'org.mpris.MediaPlayer2.app_2',
+  'Prioritizes actively playing media over paused controllable media');
 
-console.log('\n5. Null safety:');
+const activeEvent = sandbox.computeActiveEvent({ trackTitle: 'Song', trackArtist: 'Artist', identity: 'Spotify', isPlaying: true }, [], []);
+assert(activeEvent.id === 'media' && activeEvent.priority === 80, 'Creates a high-priority active media event');
+const idleEvent = sandbox.computeActiveEvent(null, [{ id: 'notification', active: true, priority: 10 }], []);
+assert(idleEvent.id === 'notification', 'Selects an active extra event when no media is playing');
+
+console.log('\n7. Null and empty safety:');
 assert(sandbox.resolveActivePlayer(null, null) === null, 'Handles a null player list');
+assert(sandbox.resolveActivePlayer([], '') === null, 'Handles an empty player list');
 assert(sandbox.detectSource(null, null).name === 'System', 'Handles a null player');
+assert(typeof sandbox.detectSource({}, []).name === 'string', 'Handles an empty player object');
 assert(sandbox.cleanTrackInfo(null, null).title === 'No Track', 'Handles null track metadata');
+assert(sandbox.cleanTrackInfo('', '').title === 'No Track', 'Handles empty track metadata');
 assert(sandbox.computeActiveEvent(null, null).id === 'idle', 'Handles no active events');
+assert(sandbox.computeActiveEvent(null, []).id === 'idle', 'Handles an empty event list');
 
 console.log('\n====================================================');
 console.log(`Test Results: ${passed} Passed, ${failed} Failed`);
