@@ -97,12 +97,14 @@ Panel {
 
   function nextTrack() {
     var p = activePlayer
-    if (p && p.canGoNext) p.next()
+    if (!p || typeof p.next !== "function") return
+    try { p.next() } catch (e) {}
   }
 
   function prevTrack() {
     var p = activePlayer
-    if (p && p.canGoPrevious) p.previous()
+    if (!p || typeof p.previous !== "function") return
+    try { p.previous() } catch (e) {}
   }
 
   readonly property bool animationsEnabled: bar ? bar.foregroundAnimationEnabled : true
@@ -520,7 +522,7 @@ Panel {
                 anchors.centerIn: parent
                 text: "󰒮"
                 textFormat: Text.PlainText
-                color: root.activePlayer && root.activePlayer.canGoPrevious ? root.contentForeground : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.3)
+                color: root.activePlayer && typeof root.activePlayer.previous === "function" ? root.contentForeground : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.3)
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.title
                 renderType: Text.NativeRendering
@@ -530,7 +532,7 @@ Panel {
                 id: prevMouse
                 anchors.fill: parent
                 hoverEnabled: true
-                cursorShape: root.activePlayer && root.activePlayer.canGoPrevious ? Qt.PointingHandCursor : Qt.ArrowCursor
+                cursorShape: root.activePlayer && typeof root.activePlayer.previous === "function" ? Qt.PointingHandCursor : Qt.ArrowCursor
                 onClicked: root.prevTrack()
               }
             }
@@ -580,7 +582,7 @@ Panel {
                 anchors.centerIn: parent
                 text: "󰒭"
                 textFormat: Text.PlainText
-                color: root.activePlayer && root.activePlayer.canGoNext ? root.contentForeground : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.3)
+                color: root.activePlayer && typeof root.activePlayer.next === "function" ? root.contentForeground : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.3)
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.title
                 renderType: Text.NativeRendering
@@ -590,7 +592,7 @@ Panel {
                 id: nextMouse
                 anchors.fill: parent
                 hoverEnabled: true
-                cursorShape: root.activePlayer && root.activePlayer.canGoNext ? Qt.PointingHandCursor : Qt.ArrowCursor
+                cursorShape: root.activePlayer && typeof root.activePlayer.next === "function" ? Qt.PointingHandCursor : Qt.ArrowCursor
                 onClicked: root.nextTrack()
               }
             }
