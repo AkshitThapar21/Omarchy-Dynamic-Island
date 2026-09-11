@@ -9,6 +9,7 @@ A sleek, interactive dynamic island bar-widget for Omarchy Quattro that expands 
 - **MPRIS Controls:** Play/Pause, Next Track, and Previous Track controls with live status sync.
 - **Live Audio Waveform:** 32-bar animated harmonic waveform layer rendered behind the playback controls.
 - **Interactive Volume Slider:** Pipewire-integrated volume scrubbing slider with live percentage badge and mute toggle.
+  The percentage uses a perceptual curve so low values do not collapse into near-silence; 30% remains clearly audible while 100% is unchanged.
 - **Web App & PWA Detection:** Recognizes PWAs (Apple Music, YouTube Music, Spotify, Plex, Jellyfin, etc.) and web media directly via Wayland toplevel mapping.
 - **Multi-Player Support:** Detects and switches between active media players (Spotify, Firefox, Chromium, Apple Music, VLC, mpv, etc.).
 - **Zero Hardcoded Colors:** 100% theme-adaptive via `qs.Commons Style` and `Color` design tokens.

@@ -33,12 +33,14 @@ Panel {
   PwObjectTracker { objects: root.volumeSink ? [root.volumeSink] : [] }
 
   readonly property real audioVolume: volumeSink && volumeSink.audio ? volumeSink.audio.volume : 0.0
+  readonly property real sliderVolume: IslandModel.uiVolumeFromPipewire(audioVolume)
   readonly property bool audioMuted: volumeSink && volumeSink.audio ? volumeSink.audio.muted : false
 
   function setAudioVolume(val) {
     var clamped = Math.max(0.0, Math.min(1.0, val))
+    var pipewireVolume = IslandModel.pipewireVolumeFromUi(clamped)
     if (volumeSink && volumeSink.audio) {
-      volumeSink.audio.volume = clamped
+      volumeSink.audio.volume = pipewireVolume
       if (volumeSink.audio.muted && clamped > 0) {
         volumeSink.audio.muted = false
       }
@@ -143,15 +145,15 @@ Panel {
       onMoveRequested: function(dx, dy) {
         if (dx < 0) root.prevTrack()
         else if (dx > 0) root.nextTrack()
-        if (dy > 0) root.setAudioVolume(root.audioVolume + 0.05)
-        else if (dy < 0) root.setAudioVolume(root.audioVolume - 0.05)
+        if (dy > 0) root.setAudioVolume(root.sliderVolume + 0.05)
+        else if (dy < 0) root.setAudioVolume(root.sliderVolume - 0.05)
       }
       onTextKey: function(t) {
         if (t === " ") root.togglePlay()
         else if (t === "n" || t === "l") root.nextTrack()
         else if (t === "p" || t === "h") root.prevTrack()
-        else if (t === "+" || t === "=" || t === "k") root.setAudioVolume(root.audioVolume + 0.05)
-        else if (t === "-" || t === "_" || t === "j") root.setAudioVolume(root.audioVolume - 0.05)
+        else if (t === "+" || t === "=" || t === "k") root.setAudioVolume(root.sliderVolume + 0.05)
+        else if (t === "-" || t === "_" || t === "j") root.setAudioVolume(root.sliderVolume - 0.05)
         else if (t === "m") root.toggleAudioMute()
       }
 
@@ -618,7 +620,7 @@ Panel {
 
               Text {
                 anchors.centerIn: parent
-                text: root.volumeIcon(root.audioVolume, root.audioMuted)
+                text: root.volumeIcon(root.sliderVolume, root.audioMuted)
                 textFormat: Text.PlainText
                 color: root.audioMuted ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.4) : Color.accent
                 font.family: root.contentFontFamily
@@ -643,7 +645,7 @@ Panel {
               minimum: 0
               maximum: 1
               step: 0.05
-              value: root.audioVolume
+              value: root.sliderVolume
               opacity: root.audioMuted ? 0.5 : 1.0
               fillColor: root.audioMuted ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.3) : Color.accent
               knobColor: root.audioMuted ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.5) : Color.accent
@@ -653,7 +655,7 @@ Panel {
 
             // Volume Percentage Label
             Text {
-              text: (root.audioMuted ? "0" : Math.round(root.audioVolume * 100)) + "%"
+              text: (root.audioMuted ? "0" : Math.round(root.sliderVolume * 100)) + "%"
               textFormat: Text.PlainText
               color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.75)
               font.family: root.contentFontFamily

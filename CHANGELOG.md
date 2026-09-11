@@ -2,6 +2,11 @@
 
 All notable changes to the **Dynamic Island** plugin (`akshit.island`) are documented in this file.
 
+## [1.1.2] - Volume control fix
+
+### Changed
+- **Perceptual volume slider:** Map the linear UI percentage through a square-root curve when writing PipeWire volume, and apply the inverse when displaying it. Low slider positions are no longer almost silent.
+
 ## [1.1.1] - Security remediation
 
 ### Changed

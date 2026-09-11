@@ -6,6 +6,23 @@ var MAX_ALL_TEXT_LEN = 1024
 var MAX_TOPLEVELS_INSPECTED = 16
 var MAX_PLAYERS_INSPECTED = 10
 
+// PipeWire exposes a linear amplitude value, while a linear UI slider feels
+// compressed near the quiet end. Use a square-root curve for writes and its
+// inverse for display so 30% remains audibly useful without changing 100%.
+function clampUnit(value) {
+  var numeric = Number(value)
+  if (!isFinite(numeric)) return 0
+  return Math.max(0, Math.min(1, numeric))
+}
+
+function pipewireVolumeFromUi(value) {
+  return Math.sqrt(clampUnit(value))
+}
+
+function uiVolumeFromPipewire(value) {
+  return Math.pow(clampUnit(value), 2)
+}
+
 // Strict pre-conversion type-checking and value sanitization
 function sanitizeValue(val, maxLen) {
   var limit = maxLen || MAX_STRING_LEN
