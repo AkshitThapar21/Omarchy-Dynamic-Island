@@ -62,9 +62,11 @@ Panel {
 
   // MPRIS Services & Active Player Resolution
   readonly property var players: Mpris.players ? Mpris.players.values : []
-  readonly property var activePlayer: IslandModel.resolveActivePlayer(players, selectedPlayerKey || (hostWidget ? hostWidget.configuredPreferredPlayer : ""))
-  readonly property bool hasMedia: activePlayer !== null && (activePlayer.trackTitle || activePlayer.trackArtist) && (activePlayer.isPlaying || activePlayer.canTogglePlaying || activePlayer.canPlay || activePlayer.canPause)
-  readonly property bool isPlaying: activePlayer ? (activePlayer.isPlaying === true && (activePlayer.canTogglePlaying || activePlayer.canPause || activePlayer.canPlay)) : false
+  readonly property var livePlayer: IslandModel.resolveActivePlayer(players, selectedPlayerKey || (hostWidget ? hostWidget.configuredPreferredPlayer : ""))
+  readonly property var activePlayer: livePlayer && (livePlayer.trackTitle || livePlayer.trackArtist)
+    ? livePlayer : (hostWidget ? hostWidget.lastKnownPlayer : null)
+  readonly property bool hasMedia: activePlayer !== null && (activePlayer.trackTitle || activePlayer.trackArtist)
+  readonly property bool isPlaying: activePlayer ? activePlayer.isPlaying === true : false
 
   // Real Brand / Source Detection & Clean Metadata
   readonly property var sourceInfo: IslandModel.detectSource(activePlayer, toplevels)

@@ -12,6 +12,7 @@ A sleek, interactive dynamic island bar-widget for Omarchy Quattro that expands 
   The percentage uses a perceptual curve so low values do not collapse into near-silence; 30% remains clearly audible while 100% is unchanged.
 - **Web App & PWA Detection:** Recognizes PWAs (Apple Music, YouTube Music, Spotify, Plex, Jellyfin, etc.) and web media directly via Wayland toplevel mapping.
 - **Multi-Player Support:** Detects and switches between active media players (Spotify, Firefox, Chromium, Apple Music, VLC, mpv, etc.).
+- **Session Track Retention:** Keeps the last known track and its available controls visible while a player is paused or briefly disappears during a DBus update; a new shell session starts idle.
 - **Zero Hardcoded Colors:** 100% theme-adaptive via `qs.Commons Style` and `Color` design tokens.
 
 ## Security & Privacy Policy

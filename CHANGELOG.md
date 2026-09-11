@@ -2,6 +2,12 @@
 
 All notable changes to the **Dynamic Island** plugin (`akshit.island`) are documented in this file.
 
+## [1.1.3] - Session state and controls fix
+
+### Changed
+- **Paused-track retention:** Keep the last known MPRIS player and track visible for the current shell session instead of falling back to idle during temporary DBus/player-state gaps.
+- **Control availability:** Media presence no longer depends only on play/pause capability; players exposing next/previous or other valid controls remain visible.
+
 ## [1.1.2] - Volume control fix
 
 ### Changed

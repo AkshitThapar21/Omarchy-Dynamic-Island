@@ -51,6 +51,10 @@ assert(!/\bProcess\s*\{|\bStdioCollector\b|\bbar\.run\s*\(/.test(sources),
   'Does not spawn helpers or execute shell commands');
 assert(!/\bImage\s*\{[\s\S]*?\bsource\s*:/.test(sources),
   'Does not pass an untrusted URL or path to QML Image.source');
+assert(/lastKnownPlayer/.test(sources) && /livePlayer/.test(sources),
+  'Retains the last MPRIS player for the current shell session');
+assert(/hasMedia:\s*activePlayer[^\n]*trackTitle/.test(sources),
+  'Keeps paused metadata visible without requiring isPlaying');
 
 console.log('\n2. Perceptual volume mapping:');
 const backendAt30 = sandbox.pipewireVolumeFromUi(0.30);

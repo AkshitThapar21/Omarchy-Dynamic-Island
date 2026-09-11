@@ -20,10 +20,21 @@ BarWidget {
 
   // MPRIS Service tracking & selection
   property string selectedPlayerKey: ""
+  // Keep the most recent MPRIS object for this shell session. A paused player
+  // can temporarily disappear from the live collection during DBus updates;
+  // retaining the object keeps the last track and its controls visible. A
+  // shell restart naturally clears this session-only state.
+  property var lastKnownPlayer: null
   readonly property var players: Mpris.players ? Mpris.players.values : []
-  readonly property var activePlayer: IslandModel.resolveActivePlayer(players, selectedPlayerKey || configuredPreferredPlayer)
-  readonly property bool hasMedia: activePlayer !== null && (activePlayer.trackTitle || activePlayer.trackArtist) && (activePlayer.isPlaying || activePlayer.canTogglePlaying || activePlayer.canPlay || activePlayer.canPause)
-  readonly property bool isPlaying: activePlayer ? (activePlayer.isPlaying === true && (activePlayer.canTogglePlaying || activePlayer.canPause || activePlayer.canPlay)) : false
+  readonly property var livePlayer: IslandModel.resolveActivePlayer(players, selectedPlayerKey || configuredPreferredPlayer)
+  readonly property var activePlayer: livePlayer && (livePlayer.trackTitle || livePlayer.trackArtist)
+    ? livePlayer : lastKnownPlayer
+  readonly property bool hasMedia: activePlayer !== null && (activePlayer.trackTitle || activePlayer.trackArtist)
+  readonly property bool isPlaying: activePlayer ? activePlayer.isPlaying === true : false
+
+  onLivePlayerChanged: {
+    if (livePlayer) lastKnownPlayer = livePlayer
+  }
 
   // Reduced motion support
   readonly property bool animationsEnabled: root.bar ? root.bar.foregroundAnimationEnabled : true
