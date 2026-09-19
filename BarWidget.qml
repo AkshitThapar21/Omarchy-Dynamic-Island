@@ -12,28 +12,81 @@ BarWidget {
   id: root
   moduleName: "akshit.island"
 
-  // Configurability Settings
-  readonly property int hoverOpenDelay: Math.max(0, root.setting("hoverOpenDelay", 160))
-  readonly property int hoverCloseDelay: Math.max(0, root.setting("hoverCloseDelay", 280))
-  readonly property int configuredPanelWidth: Math.max(280, root.setting("panelWidth", 380))
-  readonly property string configuredPreferredPlayer: root.setting("preferredPlayer", "")
+  // Defensive Configurability Settings
+  readonly property int hoverOpenDelay: IslandModel.safeInteger(root.setting("hoverOpenDelay", 160), 160, 0, 1000)
+  readonly property int hoverCloseDelay: IslandModel.safeInteger(root.setting("hoverCloseDelay", 280), 280, 0, 2000)
+  readonly property int configuredPanelWidth: IslandModel.safeInteger(root.setting("panelWidth", 380), 380, 280, 600)
+  readonly property string configuredPreferredPlayer: IslandModel.safeString(root.setting("preferredPlayer", ""), "", 64)
 
   // MPRIS Service tracking & selection
   property string selectedPlayerKey: ""
-  // Keep the most recent MPRIS object for this shell session. A paused player
-  // can temporarily disappear from the live collection during DBus updates;
-  // retaining the object keeps the last track and its controls visible. A
-  // shell restart naturally clears this session-only state.
-  property var lastKnownPlayer: null
+
+  // Plain display snapshot: holds only metadata for rendering, never used for commands.
+  property var lastKnownSnapshot: null
+
   readonly property var players: Mpris.players ? Mpris.players.values : []
   readonly property var livePlayer: IslandModel.resolveActivePlayer(players, selectedPlayerKey || configuredPreferredPlayer)
-  readonly property var activePlayer: livePlayer && (livePlayer.trackTitle || livePlayer.trackArtist)
-    ? livePlayer : lastKnownPlayer
-  readonly property bool hasMedia: activePlayer !== null && (activePlayer.trackTitle || activePlayer.trackArtist)
-  readonly property bool isPlaying: activePlayer ? activePlayer.isPlaying === true : false
+  readonly property string livePlayerKey: livePlayer ? IslandModel.playerKey(livePlayer) : ""
 
-  onLivePlayerChanged: {
-    if (livePlayer) lastKnownPlayer = livePlayer
+  // Verified liveness: livePlayer must be present in the active MPRIS collection.
+  readonly property bool isPlayerLive: livePlayer !== null && players.some(function(p) {
+    return IslandModel.playerKey(p) === root.livePlayerKey
+  })
+
+  // activePlayer is ONLY the live MPRIS QObject, never the plain snapshot.
+  readonly property var activePlayer: isPlayerLive ? livePlayer : null
+
+  function updateSnapshot() {
+    if (!activePlayer) return
+    var track = IslandModel.cleanTrackInfo(activePlayer.trackTitle, activePlayer.trackArtist)
+    if (!track.title && !track.artist) return
+    lastKnownSnapshot = {
+      key: root.livePlayerKey,
+      title: track.title,
+      artist: track.artist,
+      album: IslandModel.sanitizeString(activePlayer.trackAlbum || "", 80),
+      isPlaying: activePlayer.isPlaying === true,
+      sourceInfo: IslandModel.detectSource(activePlayer, root.toplevels)
+    }
+  }
+
+  // Grace timer for player disappearance (e.g. sleep/resume or app close)
+  Timer {
+    id: graceExpiryTimer
+    interval: 4000
+    repeat: false
+    onTriggered: {
+      if (!root.isPlayerLive) {
+        root.lastKnownSnapshot = null
+      }
+    }
+  }
+
+  onIsPlayerLiveChanged: {
+    if (isPlayerLive) {
+      graceExpiryTimer.stop()
+      root.updateSnapshot()
+    } else {
+      if (root.lastKnownSnapshot && !graceExpiryTimer.running) {
+        graceExpiryTimer.restart()
+      }
+    }
+  }
+
+  Connections {
+    target: root
+    function onActivePlayerChanged() {
+      if (root.activePlayer) root.updateSnapshot()
+    }
+    function onTitleChanged() {
+      if (root.activePlayer) root.updateSnapshot()
+    }
+    function onArtistChanged() {
+      if (root.activePlayer) root.updateSnapshot()
+    }
+    function onIsPlayingChanged() {
+      if (root.activePlayer) root.updateSnapshot()
+    }
   }
 
   // Reduced motion support
@@ -50,10 +103,27 @@ BarWidget {
   readonly property var toplevels: ToplevelManager.toplevels ? ToplevelManager.toplevels.values : []
 
   // Brand / Source & Clean Metadata
-  readonly property var sourceInfo: IslandModel.detectSource(activePlayer, toplevels)
-  readonly property var cleanedTrack: IslandModel.cleanTrackInfo(activePlayer ? activePlayer.trackTitle : "", activePlayer ? activePlayer.trackArtist : "")
-  readonly property string title: cleanedTrack.title
-  readonly property string artist: cleanedTrack.artist
+  readonly property var cleanedTrack: activePlayer
+    ? IslandModel.cleanTrackInfo(activePlayer.trackTitle, activePlayer.trackArtist)
+    : null
+
+  readonly property bool hasMedia: activePlayer !== null
+    ? (activePlayer.trackTitle || activePlayer.trackArtist)
+    : (lastKnownSnapshot !== null && (lastKnownSnapshot.title || lastKnownSnapshot.artist))
+
+  readonly property bool isPlaying: activePlayer ? (activePlayer.isPlaying === true) : false
+
+  readonly property string title: activePlayer
+    ? (cleanedTrack ? cleanedTrack.title : "")
+    : (lastKnownSnapshot ? lastKnownSnapshot.title : "")
+
+  readonly property string artist: activePlayer
+    ? (cleanedTrack ? cleanedTrack.artist : "")
+    : (lastKnownSnapshot ? lastKnownSnapshot.artist : "")
+
+  readonly property var sourceInfo: activePlayer
+    ? IslandModel.detectSource(activePlayer, toplevels)
+    : (lastKnownSnapshot ? lastKnownSnapshot.sourceInfo : IslandModel.detectSource(null, toplevels))
 
   // Active event aggregator resolution
   readonly property var activeEvent: IslandModel.computeActiveEvent(activePlayer, [], toplevels)
@@ -124,6 +194,28 @@ BarWidget {
         root.close()
       }
     }
+  }
+
+  // Bounded startup retry timer for asynchronous service readiness
+  Timer {
+    id: startupRetryTimer
+    interval: 250
+    repeat: true
+    property int attempt: 0
+    readonly property int maxAttempts: 5
+    onTriggered: {
+      attempt++
+      root.injectPanel()
+      var mprisReady = Mpris.players && Mpris.players.values.length > 0
+      var panelReady = panelLoader.item !== null
+      if ((mprisReady && panelReady) || attempt >= maxAttempts) {
+        startupRetryTimer.stop()
+      }
+    }
+  }
+
+  Component.onCompleted: {
+    startupRetryTimer.start()
   }
 
   function injectPanel() {
@@ -394,8 +486,14 @@ BarWidget {
 
       onClicked: function(mouse) {
         if (mouse.button === Qt.RightButton || mouse.button === Qt.MiddleButton) {
-          if (root.activePlayer && root.activePlayer.canTogglePlaying) {
-            root.activePlayer.togglePlaying()
+          if (root.activePlayer && root.isPlayerLive) {
+            if (root.activePlayer.canTogglePlaying) {
+              root.activePlayer.togglePlaying()
+            } else if (root.activePlayer.isPlaying && root.activePlayer.canPause) {
+              root.activePlayer.pause()
+            } else if (!root.activePlayer.isPlaying && root.activePlayer.canPlay) {
+              root.activePlayer.play()
+            }
           }
         } else {
           root.togglePanel()
@@ -403,11 +501,11 @@ BarWidget {
       }
 
       onWheel: function(wheel) {
-        if (!root.activePlayer) return
-        if (wheel.angleDelta.y > 0 && root.activePlayer.canGoPrevious) {
-          root.activePlayer.previous()
-        } else if (wheel.angleDelta.y < 0 && root.activePlayer.canGoNext) {
-          root.activePlayer.next()
+        if (!root.activePlayer || !root.isPlayerLive) return
+        if (wheel.angleDelta.y > 0 && (root.activePlayer.canGoPrevious || typeof root.activePlayer.previous === "function")) {
+          try { root.activePlayer.previous() } catch (e) {}
+        } else if (wheel.angleDelta.y < 0 && (root.activePlayer.canGoNext || typeof root.activePlayer.next === "function")) {
+          try { root.activePlayer.next() } catch (e) {}
         }
       }
     }

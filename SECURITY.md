@@ -16,6 +16,12 @@ treats MPRIS metadata and Wayland toplevel metadata as untrusted.
   assigns a player-supplied value to QML `Image.source`.
 - The plugin does not spawn child processes or execute shell commands. Volume
   changes use Quickshell's typed PipeWire API.
+- Snapshots are strictly for rendering state. Only live, collection-validated
+  MPRIS QObjects and active PipeWire sinks may receive control commands.
+- Interactive controls (Play/Pause, Previous, Next, Volume slider, and Mute)
+  are strictly disabled when their underlying player or audio sink is offline.
+- User settings are bounded and defensively validated against malformed or
+  corrupted values.
 
 ## Network and files
 

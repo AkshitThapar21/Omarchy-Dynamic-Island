@@ -2,6 +2,17 @@
 
 All notable changes to the **Dynamic Island** plugin (`akshit.island`) are documented in this file.
 
+## [1.1.4] - Reliability, liveness & responsive layout hardening
+
+### Changed
+- **Snapshot & Live Separation:** Display state and playback controls are strictly separated. Plain display snapshots preserve track visuals during transient interruptions, while commands execute only on collection-verified, live MPRIS QObjects.
+- **Grace Period Expiry:** Added a 4-second grace period for player disappearance, preventing immediate UI collapse during suspend/resume or transient collection updates while ensuring dead players cleanly expire to idle.
+- **Control Liveness & Disabling:** Play/Pause, Next, Previous, Volume Slider, and Mute are explicitly disabled and visually dimmed when their underlying player or audio sink is offline.
+- **PipeWire Sink Recovery:** Added fallback output scanning when `defaultAudioSink` is unready, with immediate control safety and reacquisition upon volume write failures.
+- **Responsive Popup Bounds:** Popup geometry dynamically clamps against available screen width and height across multi-monitor setups and display scaling changes.
+- **Defensive Settings Helpers:** Bounded and validated all configuration inputs against corrupted or out-of-bounds user settings.
+- **Startup Retries:** Bounded exponential backoff retries on launch to ensure reliable service binding.
+
 ## [1.1.3] - Session state and controls fix
 
 ### Changed

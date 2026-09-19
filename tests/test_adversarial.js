@@ -22,6 +22,8 @@ const fn = new Function('exports', modelCode + `
   exports.detectSource = detectSource;
   exports.resolveActivePlayer = resolveActivePlayer;
   exports.computeActiveEvent = computeActiveEvent;
+  exports.safeInteger = safeInteger;
+  exports.safeString = safeString;
 `);
 fn(sandbox);
 
@@ -51,10 +53,12 @@ assert(!/\bProcess\s*\{|\bStdioCollector\b|\bbar\.run\s*\(/.test(sources),
   'Does not spawn helpers or execute shell commands');
 assert(!/\bImage\s*\{[\s\S]*?\bsource\s*:/.test(sources),
   'Does not pass an untrusted URL or path to QML Image.source');
-assert(/lastKnownPlayer/.test(sources) && /livePlayer/.test(sources),
-  'Retains the last MPRIS player for the current shell session');
-assert(/hasMedia:\s*activePlayer[^\n]*trackTitle/.test(sources),
+assert(/lastKnownSnapshot/.test(sources) && /livePlayer/.test(sources) && /activePlayer/.test(sources),
+  'Separates live player QObject from display snapshot data');
+assert(/hasMedia:\s*(?:activePlayer|snapshot)/.test(sources),
   'Keeps paused metadata visible without requiring isPlaying');
+assert(/isPlayerLive/.test(sources) && /canTogglePlay/.test(sources),
+  'Guards player controls with verified collection liveness');
 
 console.log('\n2. Perceptual volume mapping:');
 const backendAt30 = sandbox.pipewireVolumeFromUi(0.30);
@@ -159,8 +163,19 @@ assert(sandbox.cleanTrackInfo('', '').title === 'No Track', 'Handles empty track
 assert(sandbox.computeActiveEvent(null, null).id === 'idle', 'Handles no active events');
 assert(sandbox.computeActiveEvent(null, []).id === 'idle', 'Handles an empty event list');
 
+console.log('\n8. Settings defense and safe helpers:');
+assert(sandbox.safeInteger('250', 160, 0, 1000) === 250, 'Parses valid integer setting');
+assert(sandbox.safeInteger(-50, 160, 0, 1000) === 0, 'Clamps integer setting to minimum bound');
+assert(sandbox.safeInteger(5000, 160, 0, 1000) === 1000, 'Clamps integer setting to maximum bound');
+assert(sandbox.safeInteger('not_a_number', 160, 0, 1000) === 160, 'Falls back safely on NaN setting value');
+assert(sandbox.safeInteger(undefined, 160, 0, 1000) === 160, 'Falls back safely on undefined setting value');
+assert(sandbox.safeString('  Spotify  ', '', 64) === 'Spotify', 'Trims valid string setting');
+assert(sandbox.safeString('A'.repeat(200), '', 64).length === 64, 'Caps string setting to max length');
+assert(sandbox.safeString(null, 'default', 64) === 'default', 'Falls back safely on null string setting');
+
 console.log('\n====================================================');
 console.log(`Test Results: ${passed} Passed, ${failed} Failed`);
 console.log('====================================================\n');
 
 if (failed > 0) process.exit(1);
+

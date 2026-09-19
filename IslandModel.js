@@ -401,3 +401,20 @@ function computeActiveEvent(mprisPlayer, extraEvents, toplevels) {
   events.sort(function(a, b) { return b.priority - a.priority })
   return events[0]
 }
+
+// Defensive settings helpers for plugin configurations
+function safeInteger(val, fallback, min, max) {
+  var num = parseInt(val, 10)
+  if (isNaN(num) || !isFinite(num)) return fallback
+  if (min !== undefined && num < min) return min
+  if (max !== undefined && num > max) return max
+  return num
+}
+
+function safeString(val, fallback, maxLen) {
+  if (typeof val !== "string") return fallback
+  var s = val.trim()
+  if (maxLen && s.length > maxLen) return s.slice(0, maxLen)
+  return s
+}
+

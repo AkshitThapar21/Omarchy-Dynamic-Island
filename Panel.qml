@@ -29,31 +29,72 @@ Panel {
 
   // PipeWire's typed API is the only audio-control path. Do not spawn helpers
   // or shell commands from this plugin.
-  readonly property var volumeSink: Pipewire.defaultAudioSink
+  readonly property var pwNodes: Pipewire.nodes ? Pipewire.nodes.values : []
+
+  function findFallbackSink() {
+    for (var i = 0; i < pwNodes.length; i++) {
+      var n = pwNodes[i]
+      if (n && n.isSink && !n.isStream && n.audio) {
+        var name = String(n.name || "").toLowerCase()
+        if (name.indexOf("monitor") === -1 && name.indexOf("loopback") === -1) {
+          return n
+        }
+      }
+    }
+    for (var j = 0; j < pwNodes.length; j++) {
+      var n2 = pwNodes[j]
+      if (n2 && n2.isSink && !n2.isStream && n2.audio) return n2
+    }
+    return null
+  }
+
+  readonly property var volumeSink: {
+    if (Pipewire.defaultAudioSink && Pipewire.defaultAudioSink.audio) {
+      return Pipewire.defaultAudioSink
+    }
+    return findFallbackSink()
+  }
+
   PwObjectTracker { objects: root.volumeSink ? [root.volumeSink] : [] }
 
-  readonly property real audioVolume: volumeSink && volumeSink.audio ? volumeSink.audio.volume : 0.0
+  property bool audioWriteFailed: false
+  readonly property bool isAudioLive: volumeSink !== null && volumeSink.audio !== null && volumeSink.audio !== undefined && !audioWriteFailed
+
+  readonly property real audioVolume: isAudioLive ? volumeSink.audio.volume : 0.0
   readonly property real sliderVolume: IslandModel.uiVolumeFromPipewire(audioVolume)
-  readonly property bool audioMuted: volumeSink && volumeSink.audio ? volumeSink.audio.muted : false
+  readonly property bool audioMuted: isAudioLive ? volumeSink.audio.muted : false
+
+  onVolumeSinkChanged: {
+    audioWriteFailed = false
+  }
 
   function setAudioVolume(val) {
+    if (!isAudioLive) return
     var clamped = Math.max(0.0, Math.min(1.0, val))
     var pipewireVolume = IslandModel.pipewireVolumeFromUi(clamped)
-    if (volumeSink && volumeSink.audio) {
+    try {
       volumeSink.audio.volume = pipewireVolume
       if (volumeSink.audio.muted && clamped > 0) {
         volumeSink.audio.muted = false
       }
+    } catch (e) {
+      audioWriteFailed = true
+      console.warn("Dynamic Island: PipeWire volume write failed:", e)
     }
   }
 
   function toggleAudioMute() {
-    if (volumeSink && volumeSink.audio) {
+    if (!isAudioLive) return
+    try {
       volumeSink.audio.muted = !volumeSink.audio.muted
+    } catch (e) {
+      audioWriteFailed = true
+      console.warn("Dynamic Island: PipeWire mute toggle failed:", e)
     }
   }
 
   function volumeIcon(vol, muted) {
+    if (!isAudioLive) return "󰝟"
     if (muted || vol <= 0.001) return ""
     if (vol >= 0.67) return ""
     if (vol >= 0.33) return ""
@@ -63,17 +104,43 @@ Panel {
   // MPRIS Services & Active Player Resolution
   readonly property var players: Mpris.players ? Mpris.players.values : []
   readonly property var livePlayer: IslandModel.resolveActivePlayer(players, selectedPlayerKey || (hostWidget ? hostWidget.configuredPreferredPlayer : ""))
-  readonly property var activePlayer: livePlayer && (livePlayer.trackTitle || livePlayer.trackArtist)
-    ? livePlayer : (hostWidget ? hostWidget.lastKnownPlayer : null)
+  readonly property string livePlayerKey: livePlayer ? IslandModel.playerKey(livePlayer) : ""
+
+  // Verified liveness: livePlayer must be present in the active MPRIS collection.
+  readonly property bool isPlayerLive: livePlayer !== null && players.some(function(p) {
+    return IslandModel.playerKey(p) === root.livePlayerKey
+  })
+
+  // activePlayer is ONLY the live MPRIS QObject, never the plain snapshot.
+  readonly property var activePlayer: isPlayerLive ? livePlayer : null
+  readonly property var snapshot: hostWidget ? hostWidget.lastKnownSnapshot : null
+
   readonly property bool hasMedia: activePlayer !== null && (activePlayer.trackTitle || activePlayer.trackArtist)
-  readonly property bool isPlaying: activePlayer ? activePlayer.isPlaying === true : false
+    ? true
+    : (snapshot !== null && (snapshot.title || snapshot.artist) ? true : false)
+
+  readonly property bool isPlaying: activePlayer ? (activePlayer.isPlaying === true) : false
+
+  readonly property bool canTogglePlay: isPlayerLive && (activePlayer.canTogglePlaying || activePlayer.canPlay || activePlayer.canPause || typeof activePlayer.play === "function")
+  readonly property bool canNavigateNext: isPlayerLive && (typeof activePlayer.next === "function")
+  readonly property bool canNavigatePrev: isPlayerLive && (typeof activePlayer.previous === "function")
 
   // Real Brand / Source Detection & Clean Metadata
-  readonly property var sourceInfo: IslandModel.detectSource(activePlayer, toplevels)
-  readonly property var cleanedTrack: IslandModel.cleanTrackInfo(activePlayer ? activePlayer.trackTitle : "", activePlayer ? activePlayer.trackArtist : "")
-  readonly property string title: hasMedia ? cleanedTrack.title : "No Media Playing"
-  readonly property string artist: hasMedia ? cleanedTrack.artist : ""
-  readonly property string album: activePlayer && activePlayer.trackAlbum ? IslandModel.sanitizeString(activePlayer.trackAlbum, 80) : ""
+  readonly property var cleanedTrack: activePlayer
+    ? IslandModel.cleanTrackInfo(activePlayer.trackTitle, activePlayer.trackArtist)
+    : null
+  readonly property string title: hasMedia
+    ? (activePlayer ? (cleanedTrack ? cleanedTrack.title : "") : (snapshot ? snapshot.title : ""))
+    : "No Media Playing"
+  readonly property string artist: hasMedia
+    ? (activePlayer ? (cleanedTrack ? cleanedTrack.artist : "") : (snapshot ? snapshot.artist : ""))
+    : ""
+  readonly property string album: activePlayer && activePlayer.trackAlbum
+    ? IslandModel.sanitizeString(activePlayer.trackAlbum, 80)
+    : (snapshot && snapshot.album ? snapshot.album : "")
+  readonly property var sourceInfo: activePlayer
+    ? IslandModel.detectSource(activePlayer, toplevels)
+    : (snapshot && snapshot.sourceInfo ? snapshot.sourceInfo : IslandModel.detectSource(null, toplevels))
   readonly property string playerIdentity: sourceInfo.name
 
   readonly property color contentForeground: bar && bar.barForeground ? bar.barForeground : Color.foreground
@@ -84,8 +151,8 @@ Panel {
   }
 
   function togglePlay() {
+    if (!isPlayerLive || !activePlayer) return
     var p = activePlayer
-    if (!p) return
     if (p.canTogglePlaying) {
       p.togglePlaying()
     } else if (p.isPlaying && p.canPause) {
@@ -96,15 +163,13 @@ Panel {
   }
 
   function nextTrack() {
-    var p = activePlayer
-    if (!p || typeof p.next !== "function") return
-    try { p.next() } catch (e) {}
+    if (!isPlayerLive || !activePlayer || typeof activePlayer.next !== "function") return
+    try { activePlayer.next() } catch (e) {}
   }
 
   function prevTrack() {
-    var p = activePlayer
-    if (!p || typeof p.previous !== "function") return
-    try { p.previous() } catch (e) {}
+    if (!isPlayerLive || !activePlayer || typeof activePlayer.previous !== "function") return
+    try { activePlayer.previous() } catch (e) {}
   }
 
   readonly property bool animationsEnabled: bar ? bar.foregroundAnimationEnabled : true
@@ -116,8 +181,16 @@ Panel {
     open: root.opened
     centerOnBar: true
     triggerMode: "hover"
-    contentWidth: panel.fittedContentWidth(Style.space(root.hostWidget ? root.hostWidget.configuredPanelWidth : 380))
-    contentHeight: panel.fittedContentHeight(mainColumn.implicitHeight)
+    contentWidth: panel.fittedContentWidth(
+      Math.min(
+        Style.space(root.hostWidget ? root.hostWidget.configuredPanelWidth : 380),
+        panel.availableCardWidth > 0 ? panel.availableCardWidth : 380
+      )
+    )
+    contentHeight: panel.fittedContentHeight(
+      mainColumn.implicitHeight,
+      panel.availableCardHeight > 0 ? panel.availableCardHeight : 0
+    )
 
     onOpenChanged: {
       if (open) {
@@ -145,20 +218,20 @@ Panel {
       }
 
       onCloseRequested: root.close()
-      onActivateRequested: root.togglePlay()
+      onActivateRequested: if (root.canTogglePlay) root.togglePlay()
       onMoveRequested: function(dx, dy) {
-        if (dx < 0) root.prevTrack()
-        else if (dx > 0) root.nextTrack()
-        if (dy > 0) root.setAudioVolume(root.sliderVolume + 0.05)
-        else if (dy < 0) root.setAudioVolume(root.sliderVolume - 0.05)
+        if (dx < 0 && root.canNavigatePrev) root.prevTrack()
+        else if (dx > 0 && root.canNavigateNext) root.nextTrack()
+        if (dy > 0 && root.isAudioLive) root.setAudioVolume(root.sliderVolume + 0.05)
+        else if (dy < 0 && root.isAudioLive) root.setAudioVolume(root.sliderVolume - 0.05)
       }
       onTextKey: function(t) {
-        if (t === " ") root.togglePlay()
-        else if (t === "n" || t === "l") root.nextTrack()
-        else if (t === "p" || t === "h") root.prevTrack()
-        else if (t === "+" || t === "=" || t === "k") root.setAudioVolume(root.sliderVolume + 0.05)
-        else if (t === "-" || t === "_" || t === "j") root.setAudioVolume(root.sliderVolume - 0.05)
-        else if (t === "m") root.toggleAudioMute()
+        if (t === " " && root.canTogglePlay) root.togglePlay()
+        else if ((t === "n" || t === "l") && root.canNavigateNext) root.nextTrack()
+        else if ((t === "p" || t === "h") && root.canNavigatePrev) root.prevTrack()
+        else if ((t === "+" || t === "=" || t === "k") && root.isAudioLive) root.setAudioVolume(root.sliderVolume + 0.05)
+        else if ((t === "-" || t === "_" || t === "j") && root.isAudioLive) root.setAudioVolume(root.sliderVolume - 0.05)
+        else if (t === "m" && root.isAudioLive) root.toggleAudioMute()
       }
 
       Item {
@@ -514,7 +587,8 @@ Panel {
               Layout.preferredWidth: Style.space(36)
               Layout.preferredHeight: Style.space(36)
               radius: Math.round(width / 2)
-              color: prevMouse.containsMouse
+              opacity: root.canNavigatePrev ? 1.0 : 0.35
+              color: prevMouse.containsMouse && root.canNavigatePrev
                 ? Style.hoverFillFor(root.contentForeground, root.contentForeground)
                 : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.08)
 
@@ -522,7 +596,7 @@ Panel {
                 anchors.centerIn: parent
                 text: "󰒮"
                 textFormat: Text.PlainText
-                color: root.activePlayer && typeof root.activePlayer.previous === "function" ? root.contentForeground : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.3)
+                color: root.canNavigatePrev ? root.contentForeground : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.3)
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.title
                 renderType: Text.NativeRendering
@@ -531,8 +605,9 @@ Panel {
               MouseArea {
                 id: prevMouse
                 anchors.fill: parent
+                enabled: root.canNavigatePrev
                 hoverEnabled: true
-                cursorShape: root.activePlayer && typeof root.activePlayer.previous === "function" ? Qt.PointingHandCursor : Qt.ArrowCursor
+                cursorShape: root.canNavigatePrev ? Qt.PointingHandCursor : Qt.ArrowCursor
                 onClicked: root.prevTrack()
               }
             }
@@ -543,17 +618,18 @@ Panel {
               Layout.preferredWidth: Style.space(44)
               Layout.preferredHeight: Style.space(44)
               radius: Math.round(width / 2)
-              color: playMouse.containsMouse
+              opacity: root.canTogglePlay ? 1.0 : 0.35
+              color: playMouse.containsMouse && root.canTogglePlay
                 ? Style.hoverFillFor(Color.accent, Color.accent)
                 : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.16)
-              borderSpec: Border.flat(Color.accent, 1)
+              borderSpec: Border.flat(root.canTogglePlay ? Color.accent : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.2), 1)
 
               Text {
                 anchors.centerIn: parent
                 anchors.horizontalCenterOffset: root.isPlaying ? 0 : Style.space(1.5)
                 text: root.isPlaying ? "󰏤" : "󰐊"
                 textFormat: Text.PlainText
-                color: Color.accent
+                color: root.canTogglePlay ? Color.accent : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.4)
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.heading
                 renderType: Text.NativeRendering
@@ -562,8 +638,9 @@ Panel {
               MouseArea {
                 id: playMouse
                 anchors.fill: parent
+                enabled: root.canTogglePlay
                 hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
+                cursorShape: root.canTogglePlay ? Qt.PointingHandCursor : Qt.ArrowCursor
                 onClicked: root.togglePlay()
               }
             }
@@ -574,7 +651,8 @@ Panel {
               Layout.preferredWidth: Style.space(36)
               Layout.preferredHeight: Style.space(36)
               radius: Math.round(width / 2)
-              color: nextMouse.containsMouse
+              opacity: root.canNavigateNext ? 1.0 : 0.35
+              color: nextMouse.containsMouse && root.canNavigateNext
                 ? Style.hoverFillFor(root.contentForeground, root.contentForeground)
                 : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.08)
 
@@ -582,7 +660,7 @@ Panel {
                 anchors.centerIn: parent
                 text: "󰒭"
                 textFormat: Text.PlainText
-                color: root.activePlayer && typeof root.activePlayer.next === "function" ? root.contentForeground : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.3)
+                color: root.canNavigateNext ? root.contentForeground : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.3)
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.title
                 renderType: Text.NativeRendering
@@ -591,8 +669,9 @@ Panel {
               MouseArea {
                 id: nextMouse
                 anchors.fill: parent
+                enabled: root.canNavigateNext
                 hoverEnabled: true
-                cursorShape: root.activePlayer && typeof root.activePlayer.next === "function" ? Qt.PointingHandCursor : Qt.ArrowCursor
+                cursorShape: root.canNavigateNext ? Qt.PointingHandCursor : Qt.ArrowCursor
                 onClicked: root.nextTrack()
               }
             }
@@ -618,7 +697,7 @@ Panel {
               Layout.preferredWidth: Style.space(26)
               Layout.preferredHeight: Style.space(26)
               radius: Math.round(width / 2)
-              color: muteMouse.containsMouse
+              color: muteMouse.containsMouse && root.isAudioLive
                 ? Style.hoverFillFor(root.contentForeground, root.contentForeground)
                 : "transparent"
 
@@ -626,7 +705,7 @@ Panel {
                 anchors.centerIn: parent
                 text: root.volumeIcon(root.sliderVolume, root.audioMuted)
                 textFormat: Text.PlainText
-                color: root.audioMuted ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.4) : Color.accent
+                color: !root.isAudioLive ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.3) : (root.audioMuted ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.4) : Color.accent)
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.body
                 renderType: Text.NativeRendering
@@ -635,8 +714,9 @@ Panel {
               MouseArea {
                 id: muteMouse
                 anchors.fill: parent
+                enabled: root.isAudioLive
                 hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
+                cursorShape: root.isAudioLive ? Qt.PointingHandCursor : Qt.ArrowCursor
                 onClicked: root.toggleAudioMute()
               }
             }
@@ -646,22 +726,23 @@ Panel {
               id: volSlider
               bar: root.bar
               Layout.fillWidth: true
+              enabled: root.isAudioLive
               minimum: 0
               maximum: 1
               step: 0.05
               value: root.sliderVolume
-              opacity: root.audioMuted ? 0.5 : 1.0
-              fillColor: root.audioMuted ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.3) : Color.accent
-              knobColor: root.audioMuted ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.5) : Color.accent
+              opacity: root.isAudioLive ? (root.audioMuted ? 0.5 : 1.0) : 0.3
+              fillColor: !root.isAudioLive ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.2) : (root.audioMuted ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.3) : Color.accent)
+              knobColor: !root.isAudioLive ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.3) : (root.audioMuted ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.5) : Color.accent)
               onMoved: function(v) { root.setAudioVolume(v) }
               onRightClicked: root.toggleAudioMute()
             }
 
             // Volume Percentage Label
             Text {
-              text: (root.audioMuted ? "0" : Math.round(root.sliderVolume * 100)) + "%"
+              text: !root.isAudioLive ? "--" : ((root.audioMuted ? "0" : Math.round(root.sliderVolume * 100)) + "%")
               textFormat: Text.PlainText
-              color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.75)
+              color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, root.isAudioLive ? 0.75 : 0.35)
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption
               font.bold: true
